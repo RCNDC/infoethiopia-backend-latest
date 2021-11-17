@@ -17,10 +17,8 @@ const newsRoute = require("./router/news.router");
 
 const issue2options = {
   origin: [
-    "http://localhost:3000",
-    "http://192.168.1.6:3000",
-    "http://192.168.1.9:3003",
-    "https://manageinfoethiopia.rcndc.com","http://infoethiopia.rcndc.com"
+    "https://manageinfoethiopia.rcndc.com",
+    "https://infoethiopia.rcndc.com",
   ],
   allowedHeaders:
     "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length,token",
