@@ -19,6 +19,6 @@ deploy-job:
     name: production
     url: http://157.230.190.157
   script:
-    - ssh $SSH_USERNAME@$SSH_IP "mkdir -p $PATH_TO_PROJECT && cd $PATH_TO_PROJECT && git stash && git pull origin master && sudo yarn && pm2 reload server && exit"
+    - ssh $SSH_USERNAME@$SSH_IP "mkdir -p $PATH_TO_PROJECT && cd $PATH_TO_PROJECT && git pull origin master && sudo yarn && pm2 reload server && exit"
   only:
     - master
