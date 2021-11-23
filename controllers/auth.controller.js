@@ -197,7 +197,7 @@ exports.signin = (req, res) => {
               .status(200)
               .json({ user: { ...result.dataValues }, token });
           } else {
-            return res.status(400).json({
+            return res.json({
               err: "Password is incorrect",
             });
           }

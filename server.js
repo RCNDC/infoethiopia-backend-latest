@@ -19,6 +19,11 @@ const issue2options = {
   origin: [
     "https://manageinfoethiopia.rcndc.com",
     "https://infoethiopia.rcndc.com",
+    "http://192.168.1.2:3001",
+    "http://localhost:3001",
+    "http://localhost:3000",
+    "http://localhost:3002",
+    "http://192.168.1.3:3003",
   ],
   allowedHeaders:
     "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length,token",
@@ -30,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 app.use(morgan("dev"));
-app.use(cookieParser());
+app.use(cookieParser()); 
 app.use(cors({ ...issue2options }));
 app.use(express.static("uploads"));
 

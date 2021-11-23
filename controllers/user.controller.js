@@ -21,7 +21,7 @@ exports.updateProfilePicture = async (req, res) => {
       return res.status(400).json({ err: "Please upload an profile picture." });
     }
     const Id = req.user.Id;
-    console.log(Id, req.file);
+
     return db.User.findOne({
       where: { Id },
     }).then(async (result) => {
@@ -43,7 +43,7 @@ exports.updateProfilePicture = async (req, res) => {
 
       let profileURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
       return result.update({ profilePicture: profileURI }).then(() => {
-        return res.json({ message: "Profile picture successfully updated." });
+        return res.json({ result });
       });
     });
   } catch (err) {

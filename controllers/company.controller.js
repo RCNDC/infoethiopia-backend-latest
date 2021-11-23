@@ -54,23 +54,23 @@ exports.addCompany = async (req, res) => {
                 return res.json({ message: "Company successfully created." });
               })
               .catch((err) => {
-                console.log(err);
+                
                 return res
                   .status(400)
                   .json({ err: "Error creating the company." });
               });
           })
           .catch((err) => {
-            console.log(err);
+      
             return res.status(400).json({ err: "Error creating the company." });
           });
       })
       .catch((err) => {
-        console.log(err);
+     
         return res.status(400).json({ err: "Error finding the company." });
       });
   } catch (err) {
-    console.log(err);
+   
     return res.status(500).send({
       err,
     });
@@ -79,9 +79,9 @@ exports.addCompany = async (req, res) => {
 exports.addCompanyFromFile = async (req, res) => {
   let message = null;
 
-  for (let index = 0; index < req.body.length; index++) {
-    const body = req.body[index];
-    // req.body.forEach((body) => {
+  //for (let index = 0; index < req.body.length; index++) {
+ await req.body.forEach((body, index) => {
+    //const body = req.body[index];
     const {
       name,
       description,
@@ -93,52 +93,87 @@ exports.addCompanyFromFile = async (req, res) => {
       long,
       wereda,
       subCity,
+      phoneNumber,
+      officeNumber,
     } = body;
+    console.log(index, "index");
     const point = { type: "Point", coordinates: [lat, long] };
     return db.Company.findOne({ where: { name } })
       .then((result) => {
         if (result) {
-          message = res.status(400).json({
+          message = {
             err: `There is already a company with name ${name}.`,
-          });
+          };
+          return false;
         }
-        return db.Company.create({
-          name,
-          description,
+        return db.PhoneNumber.findOne({
+          where: { phone_no: phoneNumber.toString() },
         })
           .then((result) => {
-            return db.Address.create({
-              city,
-              state,
-              street_no: street,
-              kebele,
-              wereda,
-              sub_city: subCity,
-              location: point,
-              companyId: result.Id,
+            if (result) {
+              message = {
+                err: `There is already a company with name ${name}.`,
+              };
+              return false;
+            }
+            return db.Company.create({
+              name,
+              description,
             })
-              .then(() => {
-                message = res.json({
-                  message: "Company successfully created.",
-                });
+              .then((result) => {
+                return db.Address.create({
+                  city,
+                  state,
+                  street_no: street,
+                  kebele,
+                  wereda,
+                  sub_city: subCity,
+                  location: point,
+                  companyId: result.Id,
+                })
+                  .then(() => {
+                    return db.OfficeNumber.create({
+                      office_no: officeNumber.toString(),
+                      companyId: result.Id,
+                    })
+                      .then(() => {
+                        return db.PhoneNumber.create({
+                          phone_no: phoneNumber.toString(),
+                          companyId: result.Id,
+                        })
+                          .then(() => {
+                            message = {
+                              message: "Companies successfully added.",
+                            };
+                            return;
+                          })
+                          .catch((err) => {
+                            message = { err: "Error adding the phone number." };
+                          });
+                      })
+                      .catch((err) => {
+                        message = { err: "Error adding the office number." };
+                      });
+                  })
+                  .catch((err) => {
+                    message = { err: `Error creating the company ${name}.` };
+                  });
               })
               .catch((err) => {
-                message = res
-                  .status(400)
-                  .json({ err: `Error creating the company ${name}.` });
+                message = { err: `Error creating the company ${name}.` };
               });
           })
           .catch((err) => {
-            message = res
-              .status(400)
-              .json({ err: `Error creating the company ${name}.` });
+            message=({ err: "Error finding the company." });
           });
       })
       .catch((err) => {
-        message = res.status(400).json({ err: "Error finding the company." });
+        message = { err: "Error finding the company." };
       });
-  }
-  return message;
+  });
+console.log(message,"message");
+  // if (message.err != null) return res.status(400).json({ err: message.err });
+  return res.json({ message:"companies successfully created." });
 };
 exports.deleteCompany = (req, res) => {
   const Id = req.params.Id;
@@ -293,7 +328,7 @@ exports.saveRecentCompany = (req, res) => {
             return;
           })
           .catch((err) => {
-            console.log(err);
+        
             return res.status(400).json({ err: "Error creating the history" });
           });
       }
@@ -305,19 +340,19 @@ exports.saveRecentCompany = (req, res) => {
               return;
             })
             .catch((err) => {
-              console.log(err);
+            
               return res
                 .status(400)
                 .json({ err: "Error creating the history" });
             });
         })
         .catch((err) => {
-          console.log(err);
+        
           return res.status(400).json({ err: "Error deleting the history" });
         });
     })
     .catch((err) => {
-      console.log(err);
+   
       return res.status(400).json({ err: "Error finding the record" });
     });
 };

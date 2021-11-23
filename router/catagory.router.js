@@ -8,7 +8,7 @@ const {
   deleteCatagory,
   viewCompaniesList,
   userViewSubCatagories,
- 
+  viewCompaniesListByName,
 } = require("../controllers/catagory.controller");
 const {
   requireSignin,
@@ -35,6 +35,6 @@ route.post("/view-sub-catagories", viewSubCatagories);
 route.get("/user-view-sub-catagories/:name", userViewSubCatagories);
 route.get("/view-all-catagories", viewAllCatagories);
 route.get("/view-catagory/:Id", viewCompaniesList);
+route.get("/view-catagory-by-name/:Name", viewCompaniesListByName);
 
 module.exports = route;
- 

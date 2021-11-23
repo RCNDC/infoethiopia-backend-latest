@@ -183,7 +183,7 @@ exports.viewCompaniesList = (req, res) => {
       {
         model: db.Catagory,
         as: "children",
-        include: [
+        include: [ 
           { model: db.Company },
           {
             model: db.Catagory,
@@ -194,6 +194,33 @@ exports.viewCompaniesList = (req, res) => {
       },
     ],
     where: { Id },
+  })
+    .then((result) => {
+      return res.json({ result });
+    })
+    .catch((err) => {
+      return res.status(400).json({ err: "Error finding catagories." });
+    });
+};
+exports.viewCompaniesListByName = (req, res) => {
+  const Name = req.params.Name;
+  return db.Catagory.findOne({
+    include: [
+      { model: db.Company },
+      {
+        model: db.Catagory,
+        as: "children",
+        include: [
+          { model: db.Company },
+          {
+            model: db.Catagory,
+            as: "children",
+            include: { model: db.Company },
+          },
+        ],
+      },
+    ],
+    where: { Name },
   })
     .then((result) => {
       return res.json({ result });
