@@ -14,12 +14,13 @@ const contactListRoute = require("./router/contactList.router");
 const serviceRoute = require("./router/service.router");
 const userRoute = require("./router/user.router");
 const newsRoute = require("./router/news.router");
+const adRoute = require("./router/ad.router");
 
 const issue2options = {
   origin: [
-    "https://manageinfoethiopia.rcndc.com",
-    "https://infoethiopia.rcndc.com",
-    "http://192.168.1.2:3001",
+    "https://manage.infoethiopia.net",
+    "https://infoethiopia.net",
+    "http://192.168.43.100:3001",
     "http://localhost:3001",
     "http://localhost:3000",
     "http://localhost:3002",
@@ -35,7 +36,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 app.use(morgan("dev"));
-app.use(cookieParser()); 
+app.use(cookieParser());
 app.use(cors({ ...issue2options }));
 app.use(express.static("uploads"));
 
@@ -47,6 +48,7 @@ app.use("/api", contactListRoute);
 app.use("/api", serviceRoute);
 app.use("/api", userRoute);
 app.use("/api", newsRoute);
+app.use("/api", adRoute);
 
 const startServer = async () => {
   try {

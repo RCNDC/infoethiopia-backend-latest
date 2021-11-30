@@ -5,9 +5,11 @@ const db = require("../models");
 const uploadImage = require("../router/upload.helper");
 exports.addCompany = async (req, res) => {
   try {
+    let image = true;
     await uploadImage(req, res);
     if (req.file == undefined) {
-      return res.status(400).send({ message: "Please upload a file!" });
+      // return res.status(400).send({ message: "Please upload a file!" });
+      image = false;
     }
     const {
       name,
@@ -21,9 +23,12 @@ exports.addCompany = async (req, res) => {
       wereda,
       subCity,
       catagoryId,
+      web,
+      pobox,
+      email,
     } = req.body;
-
-    const imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
+    let imageURI = undefined;
+    if (image) imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
 
     const point = { type: "Point", coordinates: [lat, long] };
     return db.Company.findOne({ where: { name } })
@@ -38,6 +43,8 @@ exports.addCompany = async (req, res) => {
           description,
           catagoryId,
           logo: imageURI,
+          web,
+          email,
         })
           .then((result) => {
             return db.Address.create({
@@ -49,28 +56,25 @@ exports.addCompany = async (req, res) => {
               sub_city: subCity,
               location: point,
               companyId: result.Id,
+              pobox,
             })
               .then(() => {
                 return res.json({ message: "Company successfully created." });
               })
               .catch((err) => {
-                
                 return res
                   .status(400)
                   .json({ err: "Error creating the company." });
               });
           })
           .catch((err) => {
-      
             return res.status(400).json({ err: "Error creating the company." });
           });
       })
       .catch((err) => {
-     
         return res.status(400).json({ err: "Error finding the company." });
       });
   } catch (err) {
-   
     return res.status(500).send({
       err,
     });
@@ -80,7 +84,7 @@ exports.addCompanyFromFile = async (req, res) => {
   let message = null;
 
   //for (let index = 0; index < req.body.length; index++) {
- await req.body.forEach((body, index) => {
+  await req.body.forEach((body, index) => {
     //const body = req.body[index];
     const {
       name,
@@ -95,6 +99,10 @@ exports.addCompanyFromFile = async (req, res) => {
       subCity,
       phoneNumber,
       officeNumber,
+      pobox,
+      web,
+      fax,
+      email,
     } = body;
     console.log(index, "index");
     const point = { type: "Point", coordinates: [lat, long] };
@@ -119,6 +127,8 @@ exports.addCompanyFromFile = async (req, res) => {
             return db.Company.create({
               name,
               description,
+              web,
+              email,
             })
               .then((result) => {
                 return db.Address.create({
@@ -130,6 +140,7 @@ exports.addCompanyFromFile = async (req, res) => {
                   sub_city: subCity,
                   location: point,
                   companyId: result.Id,
+                  pobox,
                 })
                   .then(() => {
                     return db.OfficeNumber.create({
@@ -142,10 +153,21 @@ exports.addCompanyFromFile = async (req, res) => {
                           companyId: result.Id,
                         })
                           .then(() => {
-                            message = {
-                              message: "Companies successfully added.",
-                            };
-                            return;
+                            return db.Fax.create({
+                              fax: fax.toString(),
+                              companyId: result.Id,
+                            })
+                              .then(() => {
+                                message = {
+                                  message: "Companies successfully added.",
+                                };
+                                return;
+                              })
+                              .catch((err) => {
+                                message = {
+                                  err: "Error adding the phone number.",
+                                };
+                              });
                           })
                           .catch((err) => {
                             message = { err: "Error adding the phone number." };
@@ -164,16 +186,112 @@ exports.addCompanyFromFile = async (req, res) => {
               });
           })
           .catch((err) => {
-            message=({ err: "Error finding the company." });
+            message = { err: "Error finding the company." };
           });
       })
       .catch((err) => {
         message = { err: "Error finding the company." };
       });
   });
-console.log(message,"message");
+  console.log(message, "message");
   // if (message.err != null) return res.status(400).json({ err: message.err });
-  return res.json({ message:"companies successfully created." });
+  return res.json({ message: "companies successfully created." });
+};
+exports.addCompanyForCatagory = async (req, res) => {
+  let message = null;
+  const Id = req.params.Id;
+  //for (let index = 0; index < req.body.length; index++) {
+  await req.body.forEach((body, index) => {
+    //const body = req.body[index];
+    const {
+      name,
+      description,
+      city,
+      state,
+      street,
+      kebele,
+      lat,
+      long,
+      wereda,
+      subCity,
+      phoneNumber,
+      officeNumber,
+      pobox,
+      web,
+      fax,
+      email,
+    } = body;
+    const point = { type: "Point", coordinates: [lat, long] };
+
+    return db.Company.findOne({ where: { name } })
+      .then((result) => {
+        if (result) {
+          message = {
+            err: `There is already a company with name ${name}.`,
+          };
+          return false;
+        }
+        return db.PhoneNumber.findOne({
+          where: { phone_no: phoneNumber.toString() },
+        })
+          .then((result) => {
+            if (result) {
+              message = {
+                err: `There is already a company with name ${name}.`,
+              };
+              return false;
+            }
+            return db.Company.create({
+              name,
+              description,
+              catagoryId: Id,
+              web,
+              email,
+            })
+              .then(async (result) => {
+                if (result) {
+                  await db.PhoneNumber.create({
+                    phone_no: phoneNumber.toString(),
+                    companyId: result.Id,
+                  });
+
+                  await db.OfficeNumber.create({
+                    office_no: officeNumber.toString(),
+                    companyId: result.Id,
+                  });
+
+                  await db.Address.create({
+                    city,
+                    state,
+                    street_no: street,
+                    kebele,
+                    wereda,
+                    sub_city: subCity,
+                    location: point,
+                    companyId: result.Id,
+                    pobox,
+                  });
+                  await db.Fax.create({
+                    fax,
+                    companyId: result.Id,
+                  });
+                }
+              })
+              .catch((err) => {
+                message = { err: `Error creating the company ${name}.` };
+              });
+          })
+          .catch((err) => {
+            message = { err: "Error finding the company." };
+          });
+      })
+      .catch((err) => {
+        message = { err: "Error finding the company." };
+      });
+  });
+  console.log(message, "message");
+  // if (message.err != null) return res.status(400).json({ err: message.err });
+  return res.json({ message: "companies successfully created." });
 };
 exports.deleteCompany = (req, res) => {
   const Id = req.params.Id;
@@ -204,6 +322,9 @@ exports.updateCompany = async (req, res) => {
       wereda,
       subCity,
       catagoryId,
+      pobox,
+      email,
+      web,
     } = req.body;
     const Id = req.params.Id;
     const point = { type: "Point", coordinates: [lat, long] };
@@ -243,6 +364,8 @@ exports.updateCompany = async (req, res) => {
               description,
               logo: imageURI,
               catagoryId,
+              web,
+              email,
             })
             .then(() => {
               return result.Address.update({
@@ -253,6 +376,7 @@ exports.updateCompany = async (req, res) => {
                 wereda,
                 sub_city: subCity,
                 location: point,
+                pobox,
               }).then(() => {
                 return res.json({ message: "Company successully updated." });
               });
@@ -270,6 +394,7 @@ exports.updateCompany = async (req, res) => {
 exports.viewAllCompany = (req, res) => {
   return db.Company.findAll({
     include: [{ model: db.Address }, { model: db.Catagory }],
+    where: { approved: true },
   })
     .then((result) => {
       return res.json({ result });
@@ -328,7 +453,6 @@ exports.saveRecentCompany = (req, res) => {
             return;
           })
           .catch((err) => {
-        
             return res.status(400).json({ err: "Error creating the history" });
           });
       }
@@ -340,19 +464,16 @@ exports.saveRecentCompany = (req, res) => {
               return;
             })
             .catch((err) => {
-            
               return res
                 .status(400)
                 .json({ err: "Error creating the history" });
             });
         })
         .catch((err) => {
-        
           return res.status(400).json({ err: "Error deleting the history" });
         });
     })
     .catch((err) => {
-   
       return res.status(400).json({ err: "Error finding the record" });
     });
 };
@@ -369,4 +490,116 @@ exports.viewRecentCompany = (req, res) => {
     .catch((err) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
+};
+exports.userAddCompany = async (req, res) => {
+  try {
+    let image = true;
+    await uploadImage(req, res);
+    if (req.file == undefined) {
+      // return res.status(400).send({ message: "Please upload a file!" });
+      image = false;
+    }
+    const {
+      name,
+      description,
+      city,
+      state,
+      street,
+      kebele,
+      lat,
+      long,
+      wereda,
+      subCity,
+      catagoryId,
+      phoneNumber,
+      officeNumber,
+      pobox,
+      web,
+      fax,
+      email,
+    } = req.body;
+    let imageURI = undefined;
+    if (image) imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
+
+    const point = { type: "Point", coordinates: [lat, long] };
+    return db.Company.findOne({ where: { name } })
+      .then((result) => {
+        if (result) {
+          return res.json({
+            err: "There is already a company with this name.",
+          });
+        }
+        return db.Company.create({
+          name,
+          description,
+          catagoryId,
+          logo: imageURI,
+          approved: false,
+          web,
+          email,
+        })
+          .then((result) => {
+            return db.Address.create({
+              city,
+              state,
+              street_no: street,
+              kebele,
+              wereda,
+              sub_city: subCity,
+              location: point,
+              companyId: result.Id,
+              pobox,
+            })
+              .then(() => {
+                return db.OfficeNumber.create({
+                  office_no: officeNumber.toString(),
+                  companyId: result.Id,
+                })
+                  .then(() => {
+                    return db.PhoneNumber.create({
+                      phone_no: phoneNumber.toString(),
+                      companyId: result.Id,
+                    })
+                      .then(() => {
+                        return db.Fax.create({
+                          fax: fax.toString(),
+                          companyId: result.Id,
+                        })
+                          .then(() => {
+                            return res.json({
+                              message: "Companies successfully added.",
+                            });
+                          })
+                          .catch((err) => {
+                            return res.json({
+                              err: "Error adding the phone number.",
+                            });
+                          });
+                      })
+                      .catch((err) => {
+                        return res.json({
+                          err: "Error adding the phone number.",
+                        });
+                      });
+                  })
+                  .catch((err) => {
+                    return res.json({ err: "Error adding the office number." });
+                  });
+              })
+              .catch((err) => {
+                return res.json({ err: "Error adding the company address." });
+              });
+          })
+          .catch((err) => {
+            return res.json({ err: "Error creating the company." });
+          });
+      })
+      .catch((err) => {
+        return res.json({ err: "Error finding the company." });
+      });
+  } catch (err) {
+    return res.json({
+      err,
+    });
+  }
 };

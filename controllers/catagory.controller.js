@@ -136,6 +136,22 @@ exports.viewAllCatagories = (req, res) => {
       return res.json({ result });
     })
     .catch((err) => {
+      console.log(err);
+      return res.status(400).json({ err: "Error finding catagories." });
+    });
+};
+exports.viewAllCatagoriesWithChildren = (req, res) => {
+  return db.Catagory.findAll({
+    include: {
+      model: db.Catagory,
+      as: "children",
+    },
+  })
+    .then((result) => {
+      return res.json({ result });
+    })
+    .catch((err) => {
+      console.log(err);
       return res.status(400).json({ err: "Error finding catagories." });
     });
 };
@@ -179,11 +195,11 @@ exports.viewCompaniesList = (req, res) => {
   const Id = req.params.Id;
   return db.Catagory.findOne({
     include: [
-      { model: db.Company },
+      { model: db.Company, required: false, where: { approved: true } },
       {
         model: db.Catagory,
         as: "children",
-        include: [ 
+        include: [
           { model: db.Company },
           {
             model: db.Catagory,
@@ -206,7 +222,7 @@ exports.viewCompaniesListByName = (req, res) => {
   const Name = req.params.Name;
   return db.Catagory.findOne({
     include: [
-      { model: db.Company },
+      { model: db.Company,  required: false,where: { approved: true } },
       {
         model: db.Catagory,
         as: "children",

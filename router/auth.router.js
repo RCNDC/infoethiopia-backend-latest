@@ -7,6 +7,7 @@ const {
   signout,
   adminSignup,
   staffSignin,
+  adminForgetpassword,
 } = require("../controllers/auth.controller");
 const route = express.Router();
 
@@ -17,5 +18,6 @@ route.post("/staff-signin", staffSignin);
 route.put("/forgot-password", forgotPassword);
 route.get("/signout", signout);
 route.post("/admin-signup", adminSignup);
+route.get("/admin-forget-password", adminForgetpassword);
 
 module.exports = route;

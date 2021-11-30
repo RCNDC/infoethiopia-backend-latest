@@ -9,6 +9,8 @@ const {
   viewCompaniesList,
   userViewSubCatagories,
   viewCompaniesListByName,
+  viewAllCatagoriesWithChildren,
+  // userViewSubCatagoriesById,
 } = require("../controllers/catagory.controller");
 const {
   requireSignin,
@@ -33,7 +35,9 @@ route.put(
 route.get("/view-main-catagories", viewMainCatagories);
 route.post("/view-sub-catagories", viewSubCatagories);
 route.get("/user-view-sub-catagories/:name", userViewSubCatagories);
+// route.get("/user-view-sub-catagories-by-Id/:Id", userViewSubCatagoriesById);
 route.get("/view-all-catagories", viewAllCatagories);
+route.get("/view-all-catagories-with-children", viewAllCatagoriesWithChildren);
 route.get("/view-catagory/:Id", viewCompaniesList);
 route.get("/view-catagory-by-name/:Name", viewCompaniesListByName);
 

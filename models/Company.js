@@ -12,11 +12,21 @@ module.exports = (sequelize, dataTypes) => {
     },
     description: {
       type: dataTypes.STRING(1000),
-      allowNull: false,
+      // allowNull: false,
     },
     logo: {
       type: dataTypes.STRING,
       // allowNull: false,
+    },
+    web: {
+      type: dataTypes.STRING,
+    },
+    email: {
+      type: dataTypes.STRING,
+    },
+    approved: {
+      type: dataTypes.BOOLEAN,
+      defaultValue: true,
     },
   });
   Company.associate = (models) => {

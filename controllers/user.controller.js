@@ -92,7 +92,7 @@ exports.preChangePassword = async (req, res) => {
       html: `<style>@import url('https://fonts.googleapis.com/css2?family=Cabin&display=swap');</style>
 <div style="border: 1px solid rgba(244,151,3,.8); border-radius: 5px; padding: 30px;">&nbsp; &nbsp;&nbsp; &nbsp;
   <div style="text-align: center; font-family: 'Cabin', sans-serif; margin: auto;">
-    <img style="display: block; margin-left: auto; margin-right: auto;" src="https://apiinfoethiopia.rcndc.com/images/logo.png" alt="" height="150">
+    <img style="display: block; margin-left: auto; margin-right: auto;" src="https://api.infoethiopia.net/images/logo.png" alt="" height="150">
     <div style="color: #143d59; font-size: 14px; margin: 20px;">
       <strong>
         <strong>
