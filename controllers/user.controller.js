@@ -5,7 +5,7 @@ const db = require("../models");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
 const transporter = nodemailer.createTransport({
-  host: "rcndc.com",
+  host: "infoethiopia.net",
   port: 465,
   secure: true,
   auth: {
@@ -24,29 +24,35 @@ exports.updateProfilePicture = async (req, res) => {
 
     return db.User.findOne({
       where: { Id },
-    }).then(async (result) => {
-      if (!result) {
-        return res.status(400).json({ err: "Error finding the user" });
-      }
+    })
+      .then(async (result) => {
+        if (!result) {
+          return res.status(400).json({ err: "Error finding the user" });
+        }
 
-      if (result.profilePicture) {
-        fs.unlink(
-          join(
-            __filename,
-            `../../uploads/images/${result.profilePicture.split("images")[1]}`
-          ),
-          (err) => {
-            if (err) throw new Error(err);
-          }
-        );
-      }
+        if (result.profilePicture) {
+          fs.unlink(
+            join(
+              __filename,
+              `../../uploads/images/${result.profilePicture.split("images")[1]}`
+            ),
+            (err) => {
+              if (err) throw new Error(err);
+            }
+          );
+        }
 
-      let profileURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
-      return result.update({ profilePicture: profileURI }).then(() => {
-        return res.json({ result });
+        let profileURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
+        return result.update({ profilePicture: profileURI }).then(() => {
+          return res.json({ result });
+        });
+      })
+      .catch((err) => {
+        return res.json({ err: "Error updating the profile picture" });
       });
-    });
   } catch (err) {
+    if (err.message) return res.json({ err: err.message });
+
     return res.status(500).send({
       err,
     });
@@ -63,8 +69,8 @@ exports.updateProfile = (req, res) => {
       }
       return result
         .update({ firstName, lastName, middleName, phone_no })
-        .then(() => {
-          return res.json({ message: "Profile successfully updated." });
+        .then((updatedProfile) => {
+          return res.json({ profile: updatedProfile });
         })
         .catch((err) => {
           console.log(err);
@@ -170,4 +176,9 @@ exports.deleteUser = (req, res) => {
 };
 exports.viewProfile = (req, res) => {
   return res.json({ profile: req.profile });
+};
+exports.totalUsers = (req, res) => {
+  return db.User.count().then((result) => {
+    return res.json({ result });
+  });
 };

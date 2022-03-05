@@ -23,6 +23,13 @@ module.exports = (sequelize, dataTypes) => {
       },
       onDelete: "cascade",
     });
+    Catagory.hasMany(models.TempCompanyFile, {
+      foreignKey: {
+        name: "catagoryId",
+        allowNull: false,
+      },
+      onDelete: "cascade",
+    });
     Catagory.hasMany(models.Catagory, {
       as: "children",
       foreignKey: "parentId",
@@ -35,4 +42,4 @@ module.exports = (sequelize, dataTypes) => {
     });
   };
   return Catagory;
-};
+}; 

@@ -2,12 +2,13 @@ const { join } = require("path");
 const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
 const db = require("../models");
+const { Op } = require("sequelize");
 
 exports.addCatagory = async (req, res) => {
   try {
     await uploadImage(req, res);
     if (req.file == undefined) {
-      return res.status(400).send({ message: "Please upload a file!" });
+      return res.status(400).json({ err: "Please upload a file!" });
     }
     const { name, parent } = req.body;
 
@@ -29,6 +30,8 @@ exports.addCatagory = async (req, res) => {
       });
     });
   } catch (err) {
+    if (err.message) return res.status(400).json({ err: err.message });
+
     return res.status(500).send({
       err,
     });
@@ -88,6 +91,8 @@ exports.updateCatagory = async (req, res) => {
       });
     });
   } catch (err) {
+    if (err.message) return res.status(400).json({ err: err.message });
+
     return res.status(500).send({
       err,
     });
@@ -113,7 +118,7 @@ exports.viewMainCatagories = (req, res) => {
       return res.json({ result });
     })
     .catch((err) => {
-      return res.status(400).json({ err: "Error finding catagories." });
+      return res.json({ err: "Error finding catagories." });
     });
 };
 exports.viewAllCatagories = (req, res) => {
@@ -193,23 +198,10 @@ exports.userViewSubCatagories = (req, res) => {
 };
 exports.viewCompaniesList = (req, res) => {
   const Id = req.params.Id;
-  return db.Catagory.findOne({
-    include: [
-      { model: db.Company, required: false, where: { approved: true } },
-      {
-        model: db.Catagory,
-        as: "children",
-        include: [
-          { model: db.Company },
-          {
-            model: db.Catagory,
-            as: "children",
-            include: { model: db.Company },
-          },
-        ],
-      },
-    ],
-    where: { Id },
+  return db.Company.findAll({
+  
+
+    where: { [Op.and]: [{ approved: true }, { catagoryId: Id }] },
   })
     .then((result) => {
       return res.json({ result });
@@ -218,30 +210,135 @@ exports.viewCompaniesList = (req, res) => {
       return res.status(400).json({ err: "Error finding catagories." });
     });
 };
-exports.viewCompaniesListByName = (req, res) => {
-  const Name = req.params.Name;
-  return db.Catagory.findOne({
+exports.viewCompaniesListWithPage = (req, res) => {
+  const Id = req.params.Id;
+  const page = req.params.page;
+  const limit = parseInt(req.params.limit);
+  return db.Company.findAll({
+    limit,
+    offset: limit * page,
     include: [
-      { model: db.Company,  required: false,where: { approved: true } },
       {
-        model: db.Catagory,
-        as: "children",
-        include: [
-          { model: db.Company },
-          {
-            model: db.Catagory,
-            as: "children",
-            include: { model: db.Company },
-          },
-        ],
+        model: db.PhoneNumber,
+        where: {
+          [Op.or]: [
+            { phone_no: { [Op.ne]: "" } },
+            { phone_no: { [Op.ne]: null } },
+          ],
+        },
       },
     ],
-    where: { Name },
+
+    where: { [Op.and]: [{ approved: true }, { catagoryId: Id }] },
   })
     .then((result) => {
+      return db.Company.count({
+        include: [
+          {
+            model: db.PhoneNumber,
+            where: {
+              [Op.or]: [
+                { phone_no: { [Op.ne]: "" } },
+                { phone_no: { [Op.ne]: null } },
+              ],
+            },
+          },
+        ],
+        where: { [Op.and]: [{ approved: true }, { catagoryId: Id }] },
+      }).then((records) => {
+        return res.json({ result, count: records });
+      });
+    })
+    .catch((err) => {
+      return res.status(400).json({ err: "Error finding catagories." });
+    });
+};
+exports.viewCompaniesListByName = (req, res) => {
+  const Name = req.params.Name;
+  return db.Company.findAll({
+    include: [
+     
+      {
+        model: db.Catagory,
+        where: {
+          name: Name,
+        },
+      },
+    ],
+    where: { approved: true },
+  })
+    .then((result) => {
+      console.log(result);
       return res.json({ result });
     })
     .catch((err) => {
       return res.status(400).json({ err: "Error finding catagories." });
     });
+};
+exports.viewCompaniesListByNameWithPagination = (req, res) => {
+  const Name = req.params.Name;
+  const page = req.params.page;
+  const limit = parseInt(req.params.limit);
+  return db.Company.findAll({
+    limit,
+    offset: limit * page,
+    include: [
+      {
+        model: db.PhoneNumber,
+        where: {
+          [Op.or]: [
+            { phone_no: { [Op.ne]: "" } },
+            { phone_no: { [Op.ne]: null } },
+          ],
+        },
+      },
+
+      {
+        model: db.Catagory,
+        where: {
+          name: Name,
+        },
+      },
+    ],
+    where: { approved: true },
+  })
+    .then((result) => {
+      return db.Company.count({
+        include: [
+          {
+            model: db.Catagory,
+            where: {
+              name: Name,
+            },
+          },
+          {
+            model: db.PhoneNumber,
+            where: {
+              [Op.or]: [
+                { phone_no: { [Op.ne]: "" } },
+                { phone_no: { [Op.ne]: null } },
+              ],
+            },
+          },
+        ],
+        where: { approved: true },
+      }).then((records) => {
+        return res.json({ result, count: records });
+      });
+    })
+    .catch((err) => {
+      return res.status(400).json({ err: "Error finding catagories." });
+    });
+};
+exports.totalMainCatagory = (req, res) => {
+  return db.Catagory.count({ where: { parentId: null } }).then((result) => {
+    return res.json({ result });
+  });
+};
+exports.totalSubCatagories = (req, res) => {
+  return db.Catagory.count({ where: { parentId: { [Op.ne]: null } } }).then(
+    (result) => {
+      return res.json({ result });
+    }
+  );
 };

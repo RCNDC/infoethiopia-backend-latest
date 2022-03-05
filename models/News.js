@@ -22,6 +22,22 @@ module.exports = (sequelize, dataTypes) => {
       type: dataTypes.STRING,
       allowNull: false,
     },
+    licence: {
+      type: dataTypes.STRING,
+    },
+    approved: {
+      type: dataTypes.BOOLEAN,
+      defaultValue: true,
+    },
   });
+  News.associate = (models) => {
+    News.belongsTo(models.Company, {
+      foreignKey: {
+        name: "companyId",
+        // allowNull: false,
+      },
+      onDelete: "cascade",
+    });
+  };
   return News;
 };

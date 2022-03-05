@@ -16,6 +16,19 @@ const {
   addCompanyFromFile,
   addCompanyForCatagory,
   userAddCompany,
+  getAllRequestedCompanies,
+  adminUpdateUserRequest,
+  approveRequestedCompanies,
+  userUpdateCompany,
+  getAllUpdateRequestedCompanies,
+  approveUpdateCompanyRequest,
+  deleteUpdateCompanyRequest,
+  getTotalCount,
+  viewAllCompanyWithPage,
+  totalCompany,
+  viewFilteredCompanyWithPage,
+  getAllAddress,
+  searchCompaniesByName,
 } = require("../controllers/company.controller");
 route.post("/add-company", requireSignin, adminMiddleware, addCompany);
 route.post("/user-add-company", userAddCompany);
@@ -38,10 +51,55 @@ route.delete(
   deleteCompany
 );
 route.put("/update-company/:Id", requireSignin, adminMiddleware, updateCompany);
+route.put(
+  "/update-requested-company/:Id",
+  requireSignin,
+  adminMiddleware,
+  adminUpdateUserRequest
+);
+route.put("/user-update-company/:Id", userUpdateCompany);
 route.get("/view-all-company", viewAllCompany);
-route.get("/search-company/:name", searchCompany);
+route.get("/view-all-company-with-page/:page/:limit", viewAllCompanyWithPage);
+route.put(
+  "/view-filtered-company-with-page/:page/:limit",
+  viewFilteredCompanyWithPage
+);
+route.get("/search-company/:slug", searchCompany);
+route.get("/search-companies-by-name/name", searchCompaniesByName);
 route.get("/company-details/:Id", searchCompanyById);
 route.post("/add-search-history", saveRecentCompany);
 route.get("/view-recent-search-history/:Id", viewRecentCompany);
+route.get("/get-all-requested-companies", getAllRequestedCompanies);
+route.get(
+  "/get-all-updated-requested-companies",
+  getAllUpdateRequestedCompanies
+);
+route.delete(
+  "/deleted-requested-companies/:Id",
+  requireSignin,
+  adminMiddleware,
+  deleteCompany
+);
+route.delete(
+  "/deleted-update-requested-companies/:Id",
+  requireSignin,
+  adminMiddleware,
+  deleteUpdateCompanyRequest
+);
+route.put(
+  "/approve-requested-company/:Id",
+  requireSignin,
+  adminMiddleware,
+  approveRequestedCompanies
+);
+route.put(
+  "/approve-update-requested-company/:Id",
+  requireSignin,
+  adminMiddleware,
+  approveUpdateCompanyRequest
+);
+route.get("/get-total-count-of-company", getTotalCount);
+route.get("/total-company", totalCompany);
+route.get("/all-addresses", getAllAddress);
 
 module.exports = route;

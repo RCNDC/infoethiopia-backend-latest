@@ -12,6 +12,7 @@ const {
   getAllUsers,
   deleteUser,
   viewProfile,
+  totalUsers,
 } = require("../controllers/user.controller");
 const route = express.Router();
 route.post("/change-profile-picture", requireSignin, updateProfilePicture);
@@ -26,4 +27,5 @@ route.put("/change-password", requireSignin, authMiddleware, changePassword);
 route.get("/get-all-users", getAllUsers);
 route.delete("/delete-user/:Id", requireSignin, adminMiddleware, deleteUser);
 route.get("/view-profile", requireSignin, authMiddleware, viewProfile);
+route.get("/total-users", totalUsers);
 module.exports = route;

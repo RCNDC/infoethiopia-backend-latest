@@ -18,6 +18,10 @@ module.exports = (sequelize, dataTypes) => {
       type: dataTypes.STRING,
       // allowNull: false,
     },
+    licence: {
+      type: dataTypes.STRING,
+      // allowNull: false,
+    },
     web: {
       type: dataTypes.STRING,
     },
@@ -27,6 +31,10 @@ module.exports = (sequelize, dataTypes) => {
     approved: {
       type: dataTypes.BOOLEAN,
       defaultValue: true,
+    },
+    slug: {
+      type: dataTypes.STRING,
+      allowNull: true,
     },
   });
   Company.associate = (models) => {
@@ -72,10 +80,24 @@ module.exports = (sequelize, dataTypes) => {
       },
       onDelete: "cascade",
     });
+    Company.hasMany(models.TempCompanyFile, {
+      foreignKey: {
+        name: "companyId",
+        allowNull: false,
+      },
+      onDelete: "cascade",
+    });
     Company.hasMany(models.CompanyImage, {
       foreignKey: {
         name: "companyId",
         allowNull: false,
+      },
+      onDelete: "cascade",
+    });
+    Company.hasMany(models.News, {
+      foreignKey: {
+        name: "companyId",
+        // allowNull: false,
       },
       onDelete: "cascade",
     });

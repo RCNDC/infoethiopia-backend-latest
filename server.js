@@ -5,7 +5,7 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const app = express();
 const morgan = require("morgan");
-
+// const bot = require("./telegramBot/telegramBot");
 const authRoute = require("./router/auth.router");
 const callCenterRoute = require("./router/callCenter.router");
 const catagoryRoute = require("./router/catagory.router");
@@ -17,15 +17,7 @@ const newsRoute = require("./router/news.router");
 const adRoute = require("./router/ad.router");
 
 const issue2options = {
-  origin: [
-    "https://manage.infoethiopia.net",
-    "https://infoethiopia.net",
-    "http://192.168.43.100:3001",
-    "http://localhost:3001",
-    "http://localhost:3000",
-    "http://localhost:3002",
-    "http://192.168.1.3:3003",
-  ],
+  origin: "*",
   allowedHeaders:
     "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length,token",
   methods: ["GET", "PUT", "POST", "DELETE"],
@@ -49,7 +41,7 @@ app.use("/api", serviceRoute);
 app.use("/api", userRoute);
 app.use("/api", newsRoute);
 app.use("/api", adRoute);
-
+// app.use(bot);
 const startServer = async () => {
   try {
     db.sequelize.authenticate().then(() => {
@@ -60,6 +52,7 @@ const startServer = async () => {
       });
     });
   } catch (err) {
+    console.log(err);
     return err;
   }
 };
