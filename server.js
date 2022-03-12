@@ -5,15 +5,23 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const app = express();
 const morgan = require("morgan");
-// const bot = require("./telegramBot/telegramBot");
+// authentication route
 const authRoute = require("./router/auth.router");
+// call center route
 const callCenterRoute = require("./router/callCenter.router");
+// category route
 const catagoryRoute = require("./router/catagory.router");
+// company route
 const companyRoute = require("./router/company.router");
+// contact list route
 const contactListRoute = require("./router/contactList.router");
+// company service route
 const serviceRoute = require("./router/service.router");
+// user route
 const userRoute = require("./router/user.router");
+// news route
 const newsRoute = require("./router/news.router");
+// ads route
 const adRoute = require("./router/ad.router");
 
 const issue2options = {
@@ -41,7 +49,6 @@ app.use("/api", serviceRoute);
 app.use("/api", userRoute);
 app.use("/api", newsRoute);
 app.use("/api", adRoute);
-// app.use(bot);
 const startServer = async () => {
   try {
     db.sequelize.authenticate().then(() => {

@@ -13,7 +13,7 @@ const {
   searchCompanyById,
   saveRecentCompany,
   viewRecentCompany,
-  addCompanyFromFile,
+  // addCompanyFromFile,
   addCompanyForCatagory,
   userAddCompany,
   getAllRequestedCompanies,
@@ -32,12 +32,12 @@ const {
 } = require("../controllers/company.controller");
 route.post("/add-company", requireSignin, adminMiddleware, addCompany);
 route.post("/user-add-company", userAddCompany);
-route.post(
-  "/add-company-from-file",
-  requireSignin,
-  adminMiddleware,
-  addCompanyFromFile
-);
+// route.post(
+//   "/add-company-from-file",
+//   requireSignin,
+//   adminMiddleware,
+//   addCompanyFromFile
+// );
 route.post(
   "/add-company-for-catagory/:Id",
   requireSignin,

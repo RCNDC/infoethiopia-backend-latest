@@ -4,6 +4,18 @@ const uploadImage = require("../router/upload.helper");
 const db = require("../models");
 const multer = require("multer");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
+
+/**
+ * @description add news
+ * @param {*} req
+ * @param {File} req.file
+ * @param {*} req.body
+ * @param {String} req.body.title
+ * @param {String} req.body.body
+ * @param {String} req.body.author
+ * @param {*} res
+ * @returns {String}
+ */
 exports.AddNews = async (req, res) => {
   try {
     await uploadImage(req, res);
@@ -27,6 +39,13 @@ exports.AddNews = async (req, res) => {
     });
   }
 };
+
+/**
+ * @description fetch all news
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getNews = (req, res) => {
   return db.News.findAll({ include: db.Company, where: { approved: true } })
     .then((result) => {
@@ -36,6 +55,13 @@ exports.getNews = (req, res) => {
       return res.status(400).json({ err: "Error finding the news." });
     });
 };
+
+/**
+ * @description delete news
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
 exports.deleteNews = (req, res) => {
   const { Id } = req.params;
   console.log("id", Id);
@@ -48,6 +74,19 @@ exports.deleteNews = (req, res) => {
       return res.status(400).json({ err: "Error deleting the news." });
     });
 };
+/**
+ * @description update news detail
+ * @param {*} req
+ * @param {File} req.file
+ * @param {*} req.body
+ * @param {String} req.body.title
+ * @param {String} req.body.body
+ * @param {String} req.body.author
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns {String}
+ */
 exports.updateNews = async (req, res) => {
   try {
     let image = true;
@@ -64,6 +103,7 @@ exports.updateNews = async (req, res) => {
       let imageURI = undefined;
 
       if (image) {
+        // delete the previous image if it's updated
         fs.unlink(
           join(
             __filename,
@@ -90,6 +130,21 @@ exports.updateNews = async (req, res) => {
     });
   }
 };
+/**
+ * @description users add news
+ * @param {*} req
+ * @param {Object} req.files
+ * @param {File} req.files.licence
+ * @param {File} req.files.image
+ * @param {*} req.body
+ * @param {String} req.body.title
+ * @param {String} req.body.body
+ * @param {String} req.body.author
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns {String}
+ */
 exports.userAddNews = async (req, res) => {
   try {
     await uploadLicenceImage(req, res);
@@ -122,6 +177,14 @@ exports.userAddNews = async (req, res) => {
     });
   }
 };
+/**
+ * @description admin approve news added by the users
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns
+ */
 exports.adminApproveNews = (req, res) => {
   const Id = req.params.Id;
   return db.News.findOne({ where: { Id } }).then((result) => {
@@ -137,6 +200,12 @@ exports.adminApproveNews = (req, res) => {
       });
   });
 };
+/**
+ * @description fetch all news added by users
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 exports.getUserNews = (req, res) => {
   return db.News.findAll({ include: db.Company, where: { approved: false } })
     .then((result) => {

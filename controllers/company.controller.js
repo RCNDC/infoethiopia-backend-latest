@@ -4,8 +4,30 @@ const db = require("../models");
 const uploadImage = require("../router/upload.helper");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
 const { Op } = require("sequelize");
-
+const _ = require("lodash");
 const { default: slugify } = require("slugify");
+
+/**
+ * @description add company
+ * @param {*} req
+ * @param {File} req.file
+ * @param {Object} req.body
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.addCompany = async (req, res) => {
   try {
     let image = true;
@@ -14,6 +36,9 @@ exports.addCompany = async (req, res) => {
     if (req.file == undefined) {
       image = false;
     }
+    /**
+     * create the company and if it was successfull create the address of it
+     */
     const {
       name,
       description,
@@ -86,128 +111,154 @@ exports.addCompany = async (req, res) => {
     });
   }
 };
-exports.addCompanyFromFile = async (req, res) => {
-  let message = null;
 
-  await req.body.forEach((body, index) => {
-    const {
-      name,
-      description,
-      city,
-      state,
-      street,
-      kebele,
-      lat,
-      long,
-      wereda,
-      subCity,
-      phoneNumber,
-      officeNumber,
-      pobox,
-      web,
-      fax,
-      email,
-    } = body;
+// exports.addCompanyFromFile = async (req, res) => {
+//   let message = null;
 
-    const point = { type: "Point", coordinates: [lat, long] };
-    return db.Company.findOne({ where: { name } })
-      .then((result) => {
-        if (result) {
-          message = {
-            err: `There is already a company with name ${name}.`,
-          };
-          return false;
-        }
-        return db.PhoneNumber.findOne({
-          where: { phone_no: phoneNumber.toString() },
-        })
-          .then((result) => {
-            if (result) {
-              message = {
-                err: `There is already a company with name ${name}.`,
-              };
-              return false;
-            }
-            return db.Company.create({
-              name,
-              description,
-              web,
-              email,
-              slug: slugify(name),
-            })
-              .then((result) => {
-                return db.Address.create({
-                  city,
-                  state,
-                  street_no: street,
-                  kebele,
-                  wereda,
-                  sub_city: subCity,
-                  location: point,
-                  companyId: result.Id,
-                  pobox,
-                })
-                  .then(() => {
-                    return db.OfficeNumber.create({
-                      office_no: officeNumber.toString(),
-                      companyId: result.Id,
-                    })
-                      .then(() => {
-                        return db.PhoneNumber.create({
-                          phone_no: phoneNumber.toString(),
-                          companyId: result.Id,
-                        })
-                          .then(() => {
-                            return db.Fax.create({
-                              fax: fax.toString(),
-                              companyId: result.Id,
-                            })
-                              .then(() => {
-                                message = {
-                                  message: "Companies successfully added.",
-                                };
-                                return;
-                              })
-                              .catch((err) => {
-                                message = {
-                                  err: "Error adding the phone number.",
-                                };
-                              });
-                          })
-                          .catch((err) => {
-                            message = { err: "Error adding the phone number." };
-                          });
-                      })
-                      .catch((err) => {
-                        message = { err: "Error adding the office number." };
-                      });
-                  })
-                  .catch((err) => {
-                    message = { err: `Error creating the company ${name}.` };
-                  });
-              })
-              .catch((err) => {
-                message = { err: `Error creating the company ${name}.` };
-              });
-          })
-          .catch((err) => {
-            message = { err: "Error finding the company." };
-          });
-      })
-      .catch((err) => {
-        message = { err: "Error finding the company." };
-      });
-  });
-  // if (message.err != null) return res.status(400).json({ err: message.err });
-  return res.json({ message: "companies successfully created." });
-};
+//   await req.body.forEach((body, index) => {
+//     const {
+//       name,
+//       description,
+//       city,
+//       state,
+//       street,
+//       kebele,
+//       lat,
+//       long,
+//       wereda,
+//       subCity,
+//       phoneNumber,
+//       officeNumber,
+//       pobox,
+//       web,
+//       fax,
+//       email,
+//     } = body;
+
+//     const point = { type: "Point", coordinates: [lat, long] };
+//     return db.Company.findOne({ where: { name } })
+//       .then((result) => {
+//         if (result) {
+//           message = {
+//             err: `There is already a company with name ${name}.`,
+//           };
+//           return false;
+//         }
+//         return db.PhoneNumber.findOne({
+//           where: { phone_no: phoneNumber.toString() },
+//         })
+//           .then((result) => {
+//             if (result) {
+//               message = {
+//                 err: `There is already a company with name ${name}.`,
+//               };
+//               return false;
+//             }
+//             return db.Company.create({
+//               name,
+//               description,
+//               web,
+//               email,
+//               slug: slugify(name),
+//             })
+//               .then((result) => {
+//                 return db.Address.create({
+//                   city,
+//                   state,
+//                   street_no: street,
+//                   kebele,
+//                   wereda,
+//                   sub_city: subCity,
+//                   location: point,
+//                   companyId: result.Id,
+//                   pobox,
+//                 })
+//                   .then(() => {
+//                     return db.OfficeNumber.create({
+//                       office_no: officeNumber.toString(),
+//                       companyId: result.Id,
+//                     })
+//                       .then(() => {
+//                         return db.PhoneNumber.create({
+//                           phone_no: phoneNumber.toString(),
+//                           companyId: result.Id,
+//                         })
+//                           .then(() => {
+//                             return db.Fax.create({
+//                               fax: fax.toString(),
+//                               companyId: result.Id,
+//                             })
+//                               .then(() => {
+//                                 message = {
+//                                   message: "Companies successfully added.",
+//                                 };
+//                                 return;
+//                               })
+//                               .catch((err) => {
+//                                 message = {
+//                                   err: "Error adding the phone number.",
+//                                 };
+//                               });
+//                           })
+//                           .catch((err) => {
+//                             message = { err: "Error adding the phone number." };
+//                           });
+//                       })
+//                       .catch((err) => {
+//                         message = { err: "Error adding the office number." };
+//                       });
+//                   })
+//                   .catch((err) => {
+//                     message = { err: `Error creating the company ${name}.` };
+//                   });
+//               })
+//               .catch((err) => {
+//                 message = { err: `Error creating the company ${name}.` };
+//               });
+//           })
+//           .catch((err) => {
+//             message = { err: "Error finding the company." };
+//           });
+//       })
+//       .catch((err) => {
+//         message = { err: "Error finding the company." };
+//       });
+//   });
+//   // if (message.err != null) return res.status(400).json({ err: message.err });
+//   return res.json({ message: "companies successfully created." });
+// };
+
+/**
+ * @description add company from category page
+ * @param {*} req
+ * @param {File} req.file
+ * @param {Object} req.params
+ * @param {String} req.params.Id id of the category
+ * @param {Array} req.body
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {String} req.body.fax
+ * @param {String} req.body.officeNumber
+ * @param {String} req.body.phoneNumber
+ * @param {*} res
+ * @returns {String}
+ */
 exports.addCompanyForCatagory = async (req, res) => {
   let message = null;
   const Id = req.params.Id;
-  console.log(req.body);
-  //for (let index = 0; index < req.body.length; index++) {
+
   await req.body.forEach((body, index) => {
-    //const body = req.body[index];
     const {
       name,
       description,
@@ -236,16 +287,7 @@ exports.addCompanyForCatagory = async (req, res) => {
           };
           return false;
         }
-        // return db.PhoneNumber.findOne({
-        //   where: { phone_no: phoneNumber.toString() },
-        // })
-        //   .then((result) => {
-        //     if (result) {
-        //       message = {
-        //         err: `There is already a company with name ${name}.`,
-        //       };
-        //       return false;
-        //     }
+
         return db.Company.create({
           name,
           description,
@@ -291,18 +333,21 @@ exports.addCompanyForCatagory = async (req, res) => {
             consoles.log(err);
             message = { err: `Error creating the company ${name}.` };
           });
-        // })
-        // .catch((err) => {
-        //   message = { err: "Error finding the company." };
-        // });
       })
       .catch((err) => {
         message = { err: "Error finding the company." };
       });
   });
-  // if (message.err != null) return res.status(400).json({ err: message.err });
   return res.json({ message: "companies successfully created." });
 };
+/**
+ * @description delete company
+ * @param {*} req
+ * @param {*} req.params
+ * @param {Object} req.params.Id
+ * @param {*} res
+ * @returns
+ */
 exports.deleteCompany = (req, res) => {
   const Id = req.params.Id;
   return db.Company.destroy({ where: { Id } })
@@ -313,6 +358,29 @@ exports.deleteCompany = (req, res) => {
       return res.status(400).json({ err: "Error deleting the company." });
     });
 };
+/**
+ * @description update company detail
+ * @param {*} req
+ * @param {File} req.file
+ * @param {Object} req.params
+ * @param {String} req.params.Id
+ * @param {Object} req.body
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.updateCompany = async (req, res) => {
   try {
     let image = true;
@@ -356,6 +424,7 @@ exports.updateCompany = async (req, res) => {
           let imageURI = undefined;
           if (image) {
             if (result.logo) {
+              // delete the previous company logo if it's updated
               fs.unlink(
                 join(
                   __filename,
@@ -403,7 +472,12 @@ exports.updateCompany = async (req, res) => {
     return res.status(400).json({ err });
   }
 };
-
+/**
+ * @description fetch all companies list including their address, social medias, office numbers, phone numbers and news
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.viewAllCompany = (req, res) => {
   return db.Company.findAll({
     include: [
@@ -424,6 +498,14 @@ exports.viewAllCompany = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+/**
+ * @description search company by it's slug
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.slug
+ * @param {*} res
+ * @returns {Object}
+ */
 exports.searchCompany = (req, res) => {
   const slug = req.params.slug;
 
@@ -447,6 +529,14 @@ exports.searchCompany = (req, res) => {
       return res.status(400).json({ err: "Error finding the company." });
     });
 };
+/**
+ * @description search company by it's name
+ * @param {*} req
+ * @param {*} req.query
+ * @param {String} req.query.slug
+ * @param {*} res
+ * @returns {Object}
+ */
 exports.searchCompaniesByName = (req, res) => {
   const { search } = req.query;
   return db.Company.findAll({
@@ -460,6 +550,14 @@ exports.searchCompaniesByName = (req, res) => {
       return res.status(400).json({ err: "Error finding the company." });
     });
 };
+/**
+ * @description search company by it's id
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.slug
+ * @param {*} res
+ * @returns {Object}
+ */
 exports.searchCompanyById = (req, res) => {
   const Id = req.params.Id;
   return db.Company.findOne({
@@ -481,6 +579,15 @@ exports.searchCompanyById = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+/**
+ * @description save companies recently searched by call centers
+ * @param {*} req
+ * @param {*} req.body
+ * @param {String} req.body.companyId
+ * @param {String} req.body.callCenterId
+ * @param {*} res
+ * @returns {Object}
+ */
 exports.saveRecentCompany = (req, res) => {
   const { companyId, callCenterId } = req.body;
   return db.RecentCompany.findOne({
@@ -517,6 +624,14 @@ exports.saveRecentCompany = (req, res) => {
       return res.status(400).json({ err: "Error finding the record" });
     });
 };
+/**
+ * @description fetch recently viewed companies by call center
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id //call center id
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.viewRecentCompany = (req, res) => {
   const { Id } = req.params;
   return db.RecentCompany.findAll({
@@ -531,7 +646,12 @@ exports.viewRecentCompany = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
-
+/**
+ * @description fetch all companies list that are requested by users
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getAllRequestedCompanies = (req, res) => {
   return db.Company.findAll({
     include: [
@@ -552,6 +672,12 @@ exports.getAllRequestedCompanies = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+/**
+ * @description approve company requested by user
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
 exports.approveRequestedCompanies = (req, res) => {
   const Id = req.params.Id;
   return db.Company.findOne({ where: { Id } })
@@ -571,6 +697,34 @@ exports.approveRequestedCompanies = (req, res) => {
       return res.status(400).json({ err: "Something's not right try again." });
     });
 };
+/**
+ * @description user add company
+ * @param {*} req
+ * @param {Object} req.params
+ * @param {Object} req.files
+ * @param {File} req.files.licence
+ * @param {File} req.files.image
+ * @param {Object} req.body
+ * @param {String} req.body.catagoryId id of the category
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {String} req.body.fax
+ * @param {String} req.body.officeNumber
+ * @param {String} req.body.phoneNumber
+ * @param {*} res
+ * @returns {String}
+ */
 exports.userAddCompany = async (req, res) => {
   try {
     let image = true;
@@ -579,7 +733,6 @@ exports.userAddCompany = async (req, res) => {
       return res.json({ err: "Please upload a file." });
     }
     let licenceURI = `${process.env.BASE_URL}/docs/${req.files.licence[0].filename}`;
-
     if (req.files.image == undefined) {
       image = false;
     }
@@ -602,6 +755,8 @@ exports.userAddCompany = async (req, res) => {
       web,
       fax,
       email,
+      // socialMedias,
+      // services,
     } = req.body;
     let imageURI = undefined;
     if (image)
@@ -644,6 +799,7 @@ exports.userAddCompany = async (req, res) => {
                 companyId: result.Id,
               });
             }
+
             if (officeNumber) {
               await db.OfficeNumber.create({
                 office_no: officeNumber,
@@ -656,16 +812,33 @@ exports.userAddCompany = async (req, res) => {
                 companyId: result.Id,
               });
             }
+            //  if (JSON.parse(services).length > 0) {
+            //    await db.Service.bulkCreate(
+            //      _.map(JSON.parse(services), (o) =>
+            //        _.extend({ companyId: result.Id }, o)
+            //      )
+            //    );
+            //  }
+
+            //  if (JSON.parse(socialMedias).length > 0) {
+            //    await db.SocialMedia.bulkCreate(
+            //      _.map(JSON.parse(socialMedias), (o) =>
+            //        _.extend({ companyId: result.Id }, o)
+            //      )
+            //    );
+            //  }
             return res.json({
               message:
                 "Company successfully created, admin will approve it shortly.",
             });
           })
           .catch((err) => {
+            console.log(err);
             return res.json({ err: "Error creating the company." });
           });
       })
       .catch((err) => {
+        console.log(err);
         return res.json({ err: "Error finding the company." });
       });
   } catch (err) {
@@ -676,6 +849,33 @@ exports.userAddCompany = async (req, res) => {
     });
   }
 };
+/**
+ * @description user add company
+ * @param {*} req
+ * @param {Object} req.params
+ * @param {Object} req.files
+ * @param {File} req.files.licence
+ * @param {File} req.files.image
+ * @param {Object} req.params
+ * @param {String} req.params.Id
+ * @param {Array} req.body
+ * @param {String} req.body.catagoryId id of the category
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.userUpdateCompany = async (req, res) => {
   try {
     let image = true;
@@ -746,6 +946,9 @@ exports.userUpdateCompany = async (req, res) => {
                 return res.json({ err: "Error creating the company." });
               });
           } else {
+            /**
+             * the updated details of the company are saved to a temporary table and saved to the company table when approved by the admin
+             */
             return db.TempCompanyFile.create({
               name,
               description,
@@ -785,6 +988,14 @@ exports.userUpdateCompany = async (req, res) => {
     });
   }
 };
+/**
+ * @description admin approve users update company request
+ * @param {*} req
+ * @param {*} req.params
+ * @param {*} req.params.Id id of the company from the temporary table
+ * @param {*} res
+ * @returns
+ */
 exports.approveUpdateCompanyRequest = (req, res) => {
   const Id = req.params.Id;
   return db.TempCompanyFile.findOne({ where: { Id } })
@@ -860,6 +1071,12 @@ exports.approveUpdateCompanyRequest = (req, res) => {
       return res.status(400).json({ err: "Error approving the company." });
     });
 };
+/**
+ * @description fetch all companies with update request from the user
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getAllUpdateRequestedCompanies = (req, res) => {
   return db.TempCompanyFile.findAll({
     include: {
@@ -874,6 +1091,14 @@ exports.getAllUpdateRequestedCompanies = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+/**
+ * @description delete update company request from the temporary table
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns
+ */
 exports.deleteUpdateCompanyRequest = (req, res) => {
   const Id = req.params.Id;
   return db.TempCompanyFile.destroy({ where: { Id } })
@@ -886,6 +1111,30 @@ exports.deleteUpdateCompanyRequest = (req, res) => {
       return res.status(400).json({ err: "Error deleting the request." });
     });
 };
+/**
+ * @description admin update user update company request detail
+ * @param {*} req
+ * @param {File} req.file
+ * @param {Object} req.params
+ * @param {String} req.params.Id
+ * @param {Array} req.body
+ * @param {String} req.body.catagoryId id of the category
+ * @param {String} req.body.name
+ * @param {String} req.body.description
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.kebele
+ * @param {Float} req.body.lat
+ * @param {Float} req.body.long
+ * @param {String} req.body.wereda
+ * @param {String} req.body.subCity
+ * @param {String} req.body.catagoryId
+ * @param {String} req.body.web
+ * @param {String} req.body.pobox
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.adminUpdateUserRequest = async (req, res) => {
   try {
     let image = true;
@@ -928,6 +1177,7 @@ exports.adminUpdateUserRequest = async (req, res) => {
           let imageURI = undefined;
           if (image) {
             if (result.logo) {
+              // delete previous logo if it's updated
               fs.unlink(
                 join(
                   __filename,
@@ -975,6 +1225,12 @@ exports.adminUpdateUserRequest = async (req, res) => {
     return res.status(400).json({ err });
   }
 };
+/**
+ * @description get total number of companies
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getTotalCount = (req, res) => {
   return db.Company.count()
     .then((result) => {
@@ -984,6 +1240,15 @@ exports.getTotalCount = (req, res) => {
       return res.json({ err: "Error getting the total number of companies." });
     });
 };
+/**
+ * @description fetch all companies with pagination
+ * @param {Object} req
+ * @param {Object} req.params
+ * @param {String} req.params.page
+ * @param {String} req.params.limit
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.viewAllCompanyWithPage = (req, res) => {
   const page = req.params.page;
   const limit = parseInt(req.params.limit);
@@ -1025,17 +1290,30 @@ exports.viewAllCompanyWithPage = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+
 exports.totalCompany = (req, res) => {
   return db.Company.count().then((result) => {
     return res.json({ result });
   });
 };
+
+/**
+ * @description filter companies by state, city and sub city
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {String} req.body.city
+ * @param {String} req.body.state
+ * @param {String} req.body.sub_city
+ * @param {Object} req.params
+ * @param {String} req.params.page
+ * @param {String} req.params.limit
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.viewFilteredCompanyWithPage = (req, res) => {
   const page = req.params.page;
   const limit = parseInt(req.params.limit);
   let { city, state, sub_city } = req.body;
-
-  console.log(state, city, sub_city);
 
   let query = {};
   if (state) {
@@ -1098,6 +1376,12 @@ exports.viewFilteredCompanyWithPage = (req, res) => {
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
+/**
+ * @description fetch all address
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getAllAddress = (req, res) => {
   return db.Address.findAll({
     where: {

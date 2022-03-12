@@ -17,11 +17,25 @@ const transporter = nodemailer.createTransport({
   logger: true,
   debug: true,
 });
+
+/**
+ * @description pre signup
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {string} req.body.firstName
+ * @param {string} req.body.lastName
+ * @param {string} req.body.middleName
+ * @param {string} req.body.phone_no
+ * @param {string} req.body.email
+ * @param {string} req.body.password
+ * @returns {String}
+ */
 exports.preSignup = async (req, res) => {
   try {
     const { firstName, lastName, middleName, phone_no, email, password } =
       req.body;
-    console.log(phone_no, email, password);
+    //look for a user with the same email or phone_no
+
     const user = await db.User.findOne({
       where: {
         [Op.or]: [{ email: email || null }, { phone_no: phone_no || null }],
@@ -32,13 +46,18 @@ exports.preSignup = async (req, res) => {
       return res.json({ err: "Email already been taken" });
     } else {
       if (user && user.activate == false) {
+        // if exists and the account is not activated delete the record
         user.destroy();
       }
+      // generate a four digit number
       let code = (Math.floor(Math.random() * 10000) + 10000)
         .toString()
         .substring(1);
 
+      // hass the password
       const pass = await bcrypt.hash(password, 12);
+
+      // send the verification code to the user email
       const info = await transporter.sendMail({
         from: process.env.GMAIL, // sender address
         to: email, // list of receivers
@@ -63,6 +82,7 @@ exports.preSignup = async (req, res) => {
       });
 
       if (info.accepted.length > 0) {
+        // if the email is sent successfully create the user
         return db.User.create({
           phone_no: phone_no || "",
           firstName,
@@ -92,6 +112,21 @@ exports.preSignup = async (req, res) => {
     return res.json({ err: "Something's not right, try again." });
   }
 };
+/**
+ * @description admin signup
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {string} req.body.firstName
+ * @param {string} req.body.lastName
+ * @param {string} req.body.middleName
+ * @param {string} req.body.phone_no
+ * @param {string} req.body.email
+ * @param {string} req.body.password
+ * @param {string} req.body.city
+ * @param {string} req.body.wereda
+ * @param {string} req.body.subCity
+ * @returns {object}
+ */
 exports.adminSignup = async (req, res) => {
   const {
     firstName,
@@ -105,6 +140,7 @@ exports.adminSignup = async (req, res) => {
     wereda,
     subCity,
   } = req.body;
+  // hash the password
   const pass = await bcrypt.hash(password, 12);
   return db.Staff.create({
     firstName,
@@ -126,9 +162,21 @@ exports.adminSignup = async (req, res) => {
       return res.status(400).json({ err });
     });
 };
+/**
+ * @description after user registered the user sends the activation code and email ro activate their account
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {String} req.body.code
+ * @param {String} req.body.email
+ * @returns {String}
+ */
 exports.signup = async (req, res) => {
   const { code, email } = req.body;
   if (code) {
+    /**
+     *  search for the user with the email and code
+     *  if user exists activate the account and change code to null
+     */
     const user = await db.User.findOne({
       where: { [Op.and]: [{ code }, { email }] },
     });
@@ -161,10 +209,19 @@ exports.signup = async (req, res) => {
     });
   }
 };
+/**
+ * @description user login
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {string} req.body.username
+ * @param {string} req.body.password
+ * @returns {object} object that holds user's information and login token
+ */
 exports.signin = (req, res) => {
   const { username, password } = req.body;
 
   var regexEmail = /\S+@\S+\.\S+/;
+  // check if the email is valid
   const validEmail = regexEmail.test(username);
   if (!validEmail) {
     parseInt(username);
@@ -181,9 +238,11 @@ exports.signin = (req, res) => {
     .then(async (result) => {
       if (result) {
         if (result.activate == 1) {
+          // check to see if the password match
           const validPassword = await bcrypt.compare(password, result.password);
 
           if (validPassword) {
+            // after the user is autenticated, sign a token and return it along with the admin info
             const token = jwt.sign(
               { Id: result.Id },
               process.env.LOGIN_SECRET,
@@ -195,14 +254,18 @@ exports.signin = (req, res) => {
             res.cookie("token", token, {});
             return res.json({ user: { ...result.dataValues }, token });
           } else {
+            // if password don't match
             return res.json({
               err: "Password is incorrect",
             });
           }
         } else {
+          // if the account hasn't been activated
           return res.json({ err: "Activate your account before you login. " });
         }
       } else {
+        // if the username don't match
+
         return res.json({
           err: "User with this email does not exist. ",
         });
@@ -212,6 +275,14 @@ exports.signin = (req, res) => {
       return res.json({ err });
     });
 };
+/**
+ * @description staff login
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {string} req.body.username
+ * @param {string} req.body.password
+ * @returns {object} object that holds staff's information and login token
+ */
 exports.staffSignin = async (req, res) => {
   const { username, password } = req.body;
 
@@ -244,18 +315,35 @@ exports.staffSignin = async (req, res) => {
       return err;
     });
 };
+/**
+ * @description this function clears the cookie
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
 exports.signout = (req, res) => {
   res.clearCookie("token");
   return res.json({
     msg: "Signout success!",
   });
 };
-
+/**
+ * middleware from express-jwt to check if the token is valid and is not expired
+ * in return it appends the variable the token has been signed with in the req.user object
+ */
 exports.requireSignin = expressJ({
   secret: process.env.LOGIN_SECRET,
   algorithms: ["HS256"],
 });
-
+/**
+ * @description this function checks if the user exists or not in the user table
+ * @param {Object} req
+ * @param {Object} req.user
+ * @param {String} req.user.Id
+ * @param {*} res
+ * @param {Function} next
+ * @returns
+ */
 exports.authMiddleware = (req, res, next) => {
   const authUserId = req.user.Id;
   return db.User.findOne({ where: { Id: authUserId } })
@@ -265,6 +353,7 @@ exports.authMiddleware = (req, res, next) => {
           err: "User not found",
         });
       }
+      //if the user exists it appends the user detail in the request as a profile object
       req.profile = user;
       next();
     })
@@ -272,6 +361,15 @@ exports.authMiddleware = (req, res, next) => {
       return res.json({ err });
     });
 };
+/**
+ * @description this function checks if the staff exists or not in the staff table
+ * @param {Object} req
+ * @param {Object} req.user
+ * @param {String} req.user.Id
+ * @param {*} res
+ * @param {Function} next
+ * @returns
+ */
 exports.adminMiddleware = (req, res, next) => {
   const adminUserId = req.user.Id;
   return db.Staff.findOne({ where: { Id: adminUserId } })
@@ -285,6 +383,7 @@ exports.adminMiddleware = (req, res, next) => {
           err: "You are not authorized.",
         });
       }
+      //if the user exists it appends the user detail in the request as a profile object
       req.profile = user;
       next();
     })
@@ -292,19 +391,27 @@ exports.adminMiddleware = (req, res, next) => {
       return res.status(400).json({ err });
     });
 };
-
+/**
+ * @description send the new password to the user email
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.forgotPassword = (req, res) => {
   try {
     const { email } = req.body;
     return db.User.findOne({ where: { email } })
       .then(async (result) => {
         if (result) {
+          // generate an eigth character long password
           let password = generator.generate({
             length: 8,
             numbers: true,
           });
-
           pass = await bcrypt.hash(password, 12);
+          // send to the email account
           const info = await transporter.sendMail({
             from: process.env.GMAIL, // sender address
             to: email, // list of receivers
@@ -332,6 +439,7 @@ exports.forgotPassword = (req, res) => {
           });
 
           if (info.accepted.length > 0) {
+            // update the password with the new generated one
             return db.User.update({ password: pass }, { where: { email } })
               .then(() => {
                 return res.json({
@@ -359,15 +467,25 @@ exports.forgotPassword = (req, res) => {
     return res.json({ err: "something is not right, try again." });
   }
 };
+/**
+ * @description send the new password to the admin email account
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
 exports.adminForgetpassword = async (req, res) => {
   try {
+    // get the admin account from the environment variables
     const email = process.env.ADMIN_EMAIL;
+    // generate an eigth character long password
     let password = generator.generate({
       length: 8,
       numbers: true,
     });
     pass = await bcrypt.hash(password, 12);
-
+    // send the new password to the admin email
     const info = await transporter.sendMail({
       from: process.env.GMAIL, // sender address
       to: email, // list of receivers

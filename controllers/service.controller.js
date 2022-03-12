@@ -1,5 +1,12 @@
 const db = require("../models");
-
+/**
+ * @description fetch all service of a specific company
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns
+ */
 exports.viewService = (req, res) => {
   const Id = req.params.Id;
   return db.Service.findAll({ where: { companyId: Id } })
@@ -10,6 +17,14 @@ exports.viewService = (req, res) => {
       return res.status(400).json({ err: "Error finding the services." });
     });
 };
+/**
+ * @description delete companies service
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns
+ */
 exports.deleteService = (req, res) => {
   const Id = req.params.Id;
   return db.Service.destroy({ where: { Id } })
@@ -20,6 +35,16 @@ exports.deleteService = (req, res) => {
       return res.status(400).json({ err: "Error deleting the services." });
     });
 };
+/**
+ * @description update companies service detail
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} req.body
+ * @param {String} req.body.name
+ * @param {*} res
+ * @returns
+ */
 exports.updateService = (req, res) => {
   const Id = req.params.Id;
   const { name } = req.body;
@@ -41,6 +66,16 @@ exports.updateService = (req, res) => {
       return res.status(400).json({ err: "Error updating the services." });
     });
 };
+/**
+ * @description add service to a apecific company
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} req.body
+ * @param {String} req.body.name
+ * @param {*} res
+ * @returns
+ */
 exports.addservice = (req, res) => {
   const Id = req.params.Id;
   const { name } = req.body;

@@ -2,6 +2,12 @@ const db = require("../models");
 const { join } = require("path");
 const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
+/**
+ * @description fetch all ads
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getAllAds = (req, res) => {
   return db.Ad.findAll({ include: db.AdImage })
     .then((result) => {
@@ -11,6 +17,12 @@ exports.getAllAds = (req, res) => {
       return res.json({ err: "Error geting the ads. " });
     });
 };
+/**
+ * @description delete ad
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
 exports.deleteAd = async (req, res) => {
   try {
     const Id = req.params.Id;
@@ -42,6 +54,12 @@ exports.deleteAd = async (req, res) => {
     console.log(err);
   }
 };
+/**
+ * @description add a new ad
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
 exports.addAd = async (req, res) => {
   try {
     await uploadImage(req, res);
@@ -60,23 +78,4 @@ exports.addAd = async (req, res) => {
   } catch (err) {
     return res.status(400).json({ err: "Error creating the ads. " });
   }
-};
-exports.deleteAdSpace = (req, res) => {
-  const Id = req.params.Id;
-  return db.Ad.findOne({ where: { Id } })
-    .then((result) => {
-      if (!result)
-        return res.status(400).json({ err: "Error finding the ad." });
-      return result
-        .destroy()
-        .then(() => {
-          return res.json({ message: "Ad successfully deleted." });
-        })
-        .catch((err) => {
-          return res.status(400).json({ err: "Error deleting the ad" });
-        });
-    })
-    .catch((err) => {
-      return res.status(400).json({ err: "Error finding the ad." });
-    });
 };

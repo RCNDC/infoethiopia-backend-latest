@@ -13,6 +13,15 @@ const transporter = nodemailer.createTransport({
     pass: process.env.PASS,
   },
 });
+/**
+ * @description users update profile picture
+ * @param {*} req
+ * @param {File} req.file
+ * @param {Object} req.user
+ * @param {String} req.user.Id
+ * @param {*} res
+ * @returns {String}
+ */
 exports.updateProfilePicture = async (req, res) => {
   try {
     await uploadImage(req, res);
@@ -58,6 +67,19 @@ exports.updateProfilePicture = async (req, res) => {
     });
   }
 };
+/**
+ * @description users update profile
+ * @param {*} req
+ * @param {Object} req.user
+ * @param {String} req.user.Id
+ * @param {Object} req.body
+ * @param {String} req.body.firstName
+ * @param {String} req.body.lastName
+ * @param {String} req.body.middleName
+ * @param {String} req.body.phone_no
+ * @param {*} res
+ * @returns {String}
+ */
 exports.updateProfile = (req, res) => {
   const { firstName, lastName, middleName, phone_no } = req.body;
   const Id = req.user.Id;
@@ -82,6 +104,17 @@ exports.updateProfile = (req, res) => {
       return res.status(400).json({ err: "Error updating the profile." });
     });
 };
+/**
+ * @description before the user changes the password they have to verify themselfs
+ * @param {*} req
+ * @param {Object} req.profile
+ * @param {String} req.body.email
+ * @param {*} req.body
+ * @param {String} req.body.email
+ * @param {*} res
+ * @returns {String}
+ */
+
 exports.preChangePassword = async (req, res) => {
   const user = req.profile;
 
@@ -137,6 +170,15 @@ exports.preChangePassword = async (req, res) => {
       .json({ err: "Enter the email you registered with. " });
   }
 };
+/**
+ * @description change password
+ * @param {Object} req
+ * @param {Object} req.profile
+ * @param {Object} req.body
+ * @param {String} req.body.code
+ * @param {String} req.body.email
+ * @returns {String}
+ */
 exports.changePassword = async (req, res) => {
   let { password, code } = req.body;
 
@@ -153,6 +195,12 @@ exports.changePassword = async (req, res) => {
     return res.status(400).json({ err: "Incorrect verification code" });
   }
 };
+/**
+ * @description fetch all users list
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.getAllUsers = (req, res) => {
   return db.User.findAll()
     .then((result) => {
@@ -162,6 +210,14 @@ exports.getAllUsers = (req, res) => {
       return res.status(400).json({ err });
     });
 };
+/**
+ * @description delete a user
+ * @param {*} req
+ * @param {*} req.params
+ * @param {String} req.params.Id
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.deleteUser = (req, res) => {
   const Id = req.params.Id;
   return db.User.destroy({ where: { Id } })
@@ -174,9 +230,21 @@ exports.deleteUser = (req, res) => {
       return res.status(400).json({ err: "Error deleting the user." });
     });
 };
+/**
+ * @description view profile
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 exports.viewProfile = (req, res) => {
   return res.json({ profile: req.profile });
 };
+/**
+ * @description get total number of users
+ * @param {*} req
+ * @param {*} res
+ * @returns {Array}
+ */
 exports.totalUsers = (req, res) => {
   return db.User.count().then((result) => {
     return res.json({ result });
