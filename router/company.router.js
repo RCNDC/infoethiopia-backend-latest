@@ -16,6 +16,7 @@ const {
   // addCompanyFromFile,
   addCompanyForCatagory,
   userAddCompany,
+  addCompanyFromForminator,
   getAllRequestedCompanies,
   adminUpdateUserRequest,
   approveRequestedCompanies,
@@ -32,6 +33,7 @@ const {
 } = require("../controllers/company.controller");
 route.post("/add-company", requireSignin, adminMiddleware, addCompany);
 route.post("/user-add-company", userAddCompany);
+route.post("/add-company-from-forminator", addCompanyFromForminator);
 // route.post(
 //   "/add-company-from-file",
 //   requireSignin,

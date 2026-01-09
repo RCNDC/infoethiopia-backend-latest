@@ -849,6 +849,130 @@ exports.userAddCompany = async (req, res) => {
     });
   }
 };
+
+/**
+ * @description Add company from Forminator form submission
+ * @param {*} req
+ * @param {Object} req.body - Forminator form data
+ * @param {String} req.body.select-1 - Category ID
+ * @param {String} req.body.text-1 - Company Name
+ * @param {String} req.body.textarea-1 - Company Details
+ * @param {String} req.body.email-1 - Email Address
+ * @param {String} req.body.url-1 - Website
+ * @param {String} req.body.text-6 - P.O Box
+ * @param {String} req.body.number-2 - Woreda
+ * @param {String} req.body.text-2 - City
+ * @param {String} req.body.text-3 - Sub City
+ * @param {String} req.body.text-4 - State
+ * @param {String} req.body.number-3 - Kebele
+ * @param {String} req.body.text-5 - Street
+ * @param {String} req.body.phone-1 - Phone Number
+ * @param {String} req.body.phone-2 - Office Number
+ * @param {String} req.body.number-4 - Fax Number
+ * @param {File} req.body.upload-1 - Upload Logo
+ * @param {File} req.body.upload-2 - Upload License
+ * @param {*} res
+ * @returns {String}
+ */
+exports.addCompanyFromForminator = async (req, res) => {
+  try {
+    // Map Forminator field names to our database fields
+    const {
+      'select-1': catagoryId,
+      'text-1': name,
+      'textarea-1': description,
+      'email-1': email,
+      'url-1': web,
+      'text-6': pobox,
+      'number-2': wereda,
+      'text-2': city,
+      'text-3': subCity,
+      'text-4': state,
+      'number-3': kebele,
+      'text-5': street,
+      'phone-1': phoneNumber,
+      'phone-2': officeNumber,
+      'number-4': fax,
+      'upload-1': logo,
+      'upload-2': licence,
+    } = req.body;
+
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ err: "Company name is required." });
+    }
+
+    // Check if company already exists
+    const existingCompany = await db.Company.findOne({ where: { name } });
+    if (existingCompany) {
+      return res.status(400).json({
+        err: "There is already a company with this name.",
+      });
+    }
+
+    // Create company with approved: false for admin review
+    const company = await db.Company.create({
+      name,
+      description: description || "",
+      catagoryId: catagoryId || null,
+      logo: logo || null,
+      licence: licence || null,
+      approved: false, // Pending admin approval
+      web: web || "",
+      email: email || "",
+      slug: slugify(name),
+    });
+
+    // Create address record
+    await db.Address.create({
+      city: city || "",
+      state: state || "",
+      street_no: street || "",
+      kebele: kebele || "",
+      wereda: wereda || "",
+      sub_city: subCity || "",
+      location: null, // No coordinates from form
+      companyId: company.Id,
+      pobox: pobox || "",
+    });
+
+    // Create phone number if provided
+    if (phoneNumber) {
+      await db.PhoneNumber.create({
+        phone_no: phoneNumber,
+        companyId: company.Id,
+      });
+    }
+
+    // Create office number if provided
+    if (officeNumber) {
+      await db.OfficeNumber.create({
+        office_no: officeNumber,
+        companyId: company.Id,
+      });
+    }
+
+    // Create fax if provided
+    if (fax) {
+      await db.Fax.create({
+        fax: fax.toString(),
+        companyId: company.Id,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message:
+        "Company request submitted successfully. Admin will review it shortly.",
+    });
+  } catch (err) {
+    console.error("Forminator submission error:", err);
+    return res.status(500).json({
+      err: "Error processing company submission. Please try again.",
+    });
+  }
+};
+
 /**
  * @description user add company
  * @param {*} req
