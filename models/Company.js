@@ -115,6 +115,12 @@ module.exports = (sequelize, dataTypes) => {
       },
       onDelete: "cascade",
     });
+    Company.hasMany(models.JobPost, {
+      foreignKey: {
+        name: "companyId",
+      },
+      onDelete: "cascade",
+    });
   };
   return Company;
 };

@@ -21,6 +21,8 @@ const serviceRoute = require("./router/service.router");
 const userRoute = require("./router/user.router");
 // news route
 const newsRoute = require("./router/news.router");
+// job route
+const jobRoute = require("./router/job.router");
 // ads route
 const adRoute = require("./router/ad.router");
 
@@ -48,6 +50,7 @@ app.use("/api", contactListRoute);
 app.use("/api", serviceRoute);
 app.use("/api", userRoute);
 app.use("/api", newsRoute);
+app.use("/api", jobRoute);
 app.use("/api", adRoute);
 const startServer = async () => {
   try {
