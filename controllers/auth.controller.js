@@ -312,7 +312,8 @@ exports.staffSignin = async (req, res) => {
       }
     })
     .catch((err) => {
-      return err;
+      console.error("Staff Signin Error:", err);
+      return res.status(500).json({ err: err.message || "Internal server error" });
     });
 };
 /**

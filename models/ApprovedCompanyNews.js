@@ -1,5 +1,5 @@
 module.exports = (sequelize, dataTypes) => {
-    const JobPost = sequelize.define("JobPost", {
+    const ApprovedCompanyNews = sequelize.define("ApprovedCompanyNews", {
         Id: {
             type: dataTypes.UUID,
             defaultValue: dataTypes.UUIDV4,
@@ -8,36 +8,42 @@ module.exports = (sequelize, dataTypes) => {
         },
         Body: {
             type: dataTypes.TEXT("long"),
+            allowNull: false,
             field: "Body",
         },
         Title: {
             type: dataTypes.STRING,
+            allowNull: false,
             field: "Title",
         },
         Author: {
             type: dataTypes.STRING,
+            allowNull: false,
             field: "Author",
         },
-        approved: {
-            type: dataTypes.BOOLEAN,
-            defaultValue: false,
-            field: "approved",
+        Approved: {
+            type: dataTypes.TINYINT(1),
+            defaultValue: 1,
+            field: "Approved",
         },
         companyId: {
-            type: dataTypes.UUID,
+            type: dataTypes.CHAR(255),
+            allowNull: true,
             field: "companyId",
         }
     }, {
-        tableName: "Job Post",
+        tableName: "ApprovedCompanyNews",
         timestamps: true,
     });
-    JobPost.associate = (models) => {
-        JobPost.belongsTo(models.Company, {
+
+    ApprovedCompanyNews.associate = (models) => {
+        ApprovedCompanyNews.belongsTo(models.Company, {
             foreignKey: {
                 name: "companyId",
             },
             onDelete: "cascade",
         });
     };
-    return JobPost;
+
+    return ApprovedCompanyNews;
 };

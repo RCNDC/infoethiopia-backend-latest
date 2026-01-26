@@ -14,6 +14,8 @@ module.exports = (sequelize, dataTypes) => {
       type: dataTypes.STRING,
       allowNull: false,
     },
+  }, {
+    tableName: "Catagories"
   });
   Catagory.associate = (models) => {
     Catagory.hasMany(models.Company, {

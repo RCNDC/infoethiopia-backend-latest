@@ -1376,41 +1376,46 @@ exports.getTotalCount = (req, res) => {
 exports.viewAllCompanyWithPage = (req, res) => {
   const page = req.params.page;
   const limit = parseInt(req.params.limit);
+  const { phoneFilter } = req.query;
+
+  const phoneInclude = {
+    model: db.PhoneNumber,
+  };
+
+  if (phoneFilter === "true") {
+    phoneInclude.where = {
+      [Op.or]: [
+        { phone_no: { [Op.ne]: "" } },
+        { phone_no: { [Op.ne]: null } },
+      ],
+    };
+    phoneInclude.required = true;
+  } else {
+    phoneInclude.required = false;
+  }
+
   return db.Company.findAll({
     limit,
     offset: limit * page,
     include: [
-      {
-        model: db.PhoneNumber,
-        where: {
-          [Op.or]: [
-            { phone_no: { [Op.ne]: "" } },
-            { phone_no: { [Op.ne]: null } },
-          ],
-        },
-      },
+      phoneInclude,
+      { model: db.Address },
+      { model: db.Catagory },
+      { model: db.OfficeNumber },
+      { model: db.Fax },
     ],
     where: { approved: true },
   })
     .then((result) => {
       return db.Company.count({
-        include: [
-          {
-            model: db.PhoneNumber,
-            where: {
-              [Op.or]: [
-                { phone_no: { [Op.ne]: "" } },
-                { phone_no: { [Op.ne]: null } },
-              ],
-            },
-          },
-        ],
+        include: [phoneInclude],
         where: { approved: true },
       }).then((records) => {
         return res.json({ result, count: records });
       });
     })
     .catch((err) => {
+      console.log(err);
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };

@@ -1,9 +1,9 @@
 {
   "development": {
-    "username": "root",
-    "password": null,
-    "database": "companyPortal",
-    "host": "localhost",
+    "username": "infoethiopianet_companyPortaluser",
+    "password": "2WrDgQcw2mF2",
+    "database": "infoethiopianet_companyPortal",
+    "host": "192.250.239.85",
     "dialect": "mysql"
   },
   "test": {
@@ -14,10 +14,10 @@
     "dialect": "mysql"
   },
   "production": {
-    "username": "root",
-    "password": null,
-    "database": "companyPortal",
-    "host": "127.0.0.1",
+    "username": "infoethiopianet_companyPortaluser",
+    "password": "2WrDgQcw2mF2",
+    "database": "infoethiopianet_companyPortal",
+    "host": "192.250.239.85",
     "dialect": "mysql"
   }
 }

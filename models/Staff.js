@@ -51,6 +51,8 @@ module.exports = (sequelize, dataTypes) => {
       type: dataTypes.INTEGER,
       allowNull: false,
     },
+  }, {
+    tableName: "Staffs"
   });
   Staff.associate = (models) => {
     Staff.hasMany(models.RecentCompany, {

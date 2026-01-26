@@ -12,6 +12,8 @@ const {
     userAddJob,
     adminApproveJob,
     getRequestedJobs,
+    getUserJobs,
+    getApprovedCompanyJobs,
 } = require("../controllers/job.controller");
 
 route.post("/add-job", requireSignin, adminMiddleware, AddJob);
@@ -25,6 +27,8 @@ route.put(
     adminMiddleware,
     adminApproveJob
 );
+route.get("/get-user-jobs", getUserJobs);
+route.get("/get-approved-company-jobs/:Id", getApprovedCompanyJobs);
 route.post("/user-add-job/:Id", userAddJob);
 
 module.exports = route;
