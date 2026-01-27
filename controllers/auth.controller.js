@@ -596,38 +596,3 @@ exports.adminForgetpassword = async (req, res) => {
   }
 };
 
-/**
- * @description Temporary endpoint to reset user password for testing
- * IMPORTANT: Remove this endpoint after testing!
- */
-exports.tempResetUserPassword = async (req, res) => {
-  const { email, newPassword, secretKey } = req.body;
-
-  // Simple security check - use a secret key
-  if (secretKey !== 'infoethiopia2026reset') {
-    return res.status(403).json({ err: "Unauthorized" });
-  }
-
-  try {
-    const user = await db.User.findOne({ where: { email } });
-
-    if (!user) {
-      return res.status(400).json({ err: "User not found" });
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await user.update({ password: hashedPassword });
-
-    return res.json({
-      message: `Password updated successfully for ${email}`,
-      user: {
-        email: user.email,
-        firstName: user.firstName,
-        activate: user.activate
-      }
-    });
-  } catch (err) {
-    console.error("Password reset error:", err);
-    return res.status(500).json({ err: err.message });
-  }
-};
