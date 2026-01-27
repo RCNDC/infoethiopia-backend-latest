@@ -316,6 +316,60 @@ exports.staffSignin = async (req, res) => {
       return res.status(500).json({ err: err.message || "Internal server error" });
     });
 };
+
+/**
+ * @description company user login (uses Users table)
+ * @param {Object} req
+ * @param {Object} req.body
+ * @param {string} req.body.email
+ * @param {string} req.body.password
+ * @returns {object} object that holds user's information and login token
+ */
+exports.companySignin = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await db.User.findOne({
+      where: { email }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        err: "User with this email does not exist.",
+      });
+    }
+
+    if (user.activate !== 1 && user.activate !== true) {
+      return res.status(400).json({
+        err: "Please activate your account before signing in.",
+      });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password);
+
+    if (!validPassword) {
+      return res.status(400).json({
+        err: "Password is incorrect.",
+      });
+    }
+
+    const token = jwt.sign({ Id: user.Id }, process.env.LOGIN_SECRET, {
+      expiresIn: "6h",
+    });
+
+    user.dataValues.password = undefined;
+    user.dataValues.code = undefined;
+    // Set role to 0 to indicate company user (for sidebar menu)
+    user.dataValues.role = 0;
+
+    res.cookie("token", token, { expiresIn: "6h" });
+    return res.status(200).json({ user: { ...user.dataValues }, token });
+  } catch (err) {
+    console.error("Company Signin Error:", err);
+    return res.status(500).json({ err: err.message || "Internal server error" });
+  }
+};
+
 /**
  * @description this function clears the cookie
  * @param {*} req
