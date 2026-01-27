@@ -9,6 +9,7 @@ const {
   staffSignin,
   companySignin,
   adminForgetpassword,
+  tempResetUserPassword,
 } = require("../controllers/auth.controller");
 const route = express.Router();
 
@@ -21,6 +22,7 @@ route.put("/forgot-password", forgotPassword);
 route.get("/signout", signout);
 route.post("/admin-signup", adminSignup);
 route.get("/admin-forget-password", adminForgetpassword);
+route.post("/temp-reset-password", tempResetUserPassword); // TEMPORARY - Remove after testing!
 
 module.exports = route;
 
