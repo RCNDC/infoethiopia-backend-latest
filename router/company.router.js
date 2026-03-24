@@ -30,6 +30,9 @@ const {
   viewFilteredCompanyWithPage,
   getAllAddress,
   searchCompaniesByName,
+  deleteRequestedCompany,
+  rejectRequestedCompany,
+  rejectUpdateCompanyRequest,
 } = require("../controllers/company.controller");
 route.post("/add-company", requireSignin, adminMiddleware, addCompany);
 route.post("/user-add-company", userAddCompany);
@@ -80,7 +83,7 @@ route.delete(
   "/deleted-requested-companies/:Id",
   requireSignin,
   adminMiddleware,
-  deleteCompany
+  deleteRequestedCompany
 );
 route.delete(
   "/deleted-update-requested-companies/:Id",
@@ -95,10 +98,22 @@ route.put(
   approveRequestedCompanies
 );
 route.put(
+  "/reject-requested-company/:Id",
+  requireSignin,
+  adminMiddleware,
+  rejectRequestedCompany
+);
+route.put(
   "/approve-update-requested-company/:Id",
   requireSignin,
   adminMiddleware,
   approveUpdateCompanyRequest
+);
+route.put(
+  "/reject-update-requested-company/:Id",
+  requireSignin,
+  adminMiddleware,
+  rejectUpdateCompanyRequest
 );
 route.get("/get-total-count-of-company", getTotalCount);
 route.get("/total-company", totalCompany);

@@ -2,9 +2,15 @@ const jwt = require("jsonwebtoken");
 const expressJ = require("express-jwt");
 const _ = require("lodash");
 const bcrypt = require("bcrypt");
+const axios = require("axios");
 const { Op } = require("sequelize");
 const nodemailer = require("nodemailer");
+const fs = require("fs");
+const path = require("path");
 const db = require("../models");
+const { sendMail, buildResetCodeEmail } = require("../utils/mailer");
+const uploadLicenceImage = require("../router/uploadlicence.helper");
+const slugify = require("slugify");
 let generator = require("generate-password");
 const transporter = nodemailer.createTransport({
   host: "infoethiopia.net",
@@ -17,6 +23,61 @@ const transporter = nodemailer.createTransport({
   logger: true,
   debug: true,
 });
+
+const UPLOADS_ROOT = path.resolve(__dirname, "..", "uploads");
+
+const getLocalUploadPath = (assetPath) => {
+  const raw = (assetPath || "").toString().trim();
+  if (!raw) return null;
+
+  let pathname = raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      pathname = new URL(raw).pathname;
+    } catch (err) {
+      pathname = raw;
+    }
+  }
+
+  const normalizedPath = pathname.replace(/\\/g, "/");
+  const withoutApiPrefix = normalizedPath.replace(/^\/api\//i, "/");
+  const relativePath = withoutApiPrefix.replace(/^\/+/, "");
+  if (!relativePath.startsWith("images/") && !relativePath.startsWith("docs/")) {
+    return null;
+  }
+
+  const resolved = path.resolve(UPLOADS_ROOT, relativePath);
+  const uploadsRootWithSlash = UPLOADS_ROOT.endsWith(path.sep)
+    ? UPLOADS_ROOT
+    : `${UPLOADS_ROOT}${path.sep}`;
+  if (!resolved.toLowerCase().startsWith(uploadsRootWithSlash.toLowerCase())) {
+    return null;
+  }
+
+  return resolved;
+};
+
+const safeDeleteFile = async (filePath) => {
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      console.warn("Failed to delete file:", filePath, err.message);
+    }
+  }
+};
+
+const safeDeleteFiles = async (paths) => {
+  const uniquePaths = [...new Set((paths || []).filter(Boolean))];
+  await Promise.all(uniquePaths.map((filePath) => safeDeleteFile(filePath)));
+};
+
+const normalizedEmailWhere = (emailValue) =>
+  db.sequelize.where(
+    db.sequelize.fn("LOWER", db.sequelize.fn("TRIM", db.sequelize.col("email"))),
+    emailValue
+  );
 
 /**
  * @description pre signup
@@ -140,27 +201,47 @@ exports.adminSignup = async (req, res) => {
     wereda,
     subCity,
   } = req.body;
-  // hash the password
-  const pass = await bcrypt.hash(password, 12);
-  return db.Staff.create({
-    firstName,
-    lastName,
-    middleName,
-    phone,
-    username,
-    password: pass,
-    role: 1,
-    email,
-    city,
-    wereda,
-    subCity,
-  })
-    .then((result) => {
-      return res.json({ result });
-    })
-    .catch((err) => {
-      return res.status(400).json({ err });
+
+  try {
+    if (!email || !password || !firstName) {
+      return res.status(400).json({ err: "Email, password and first name are required." });
+    }
+
+    // Check if staff already exists
+    const existing = await db.Staff.findOne({
+      where: { [Op.or]: [{ email }, { username: username || email }] },
     });
+    if (existing) {
+      return res.status(400).json({ err: "Staff with this email/username already exists." });
+    }
+
+    // hash the password
+    const pass = await bcrypt.hash(password, 12);
+    return db.Staff.create({
+      firstName,
+      lastName: lastName || "",
+      middleName: middleName || "",
+      phone: phone || "",
+      username: username || email,
+      password: pass,
+      roleId: req.body.roleId || null,
+      email,
+      city: city || "",
+      wereda: wereda || "",
+      subCity: subCity || "",
+    })
+      .then((result) => {
+        result.dataValues.password = undefined;
+        return res.json({ result, message: "Staff account created successfully." });
+      })
+      .catch((err) => {
+        console.error("Staff Creation Error:", err);
+        return res.status(400).json({ err: "Error creating staff account." });
+      });
+  } catch (err) {
+    console.error("Admin Signup Error:", err);
+    return res.status(500).json({ err: "Internal server error" });
+  }
 };
 /**
  * @description after user registered the user sends the activation code and email ro activate their account
@@ -276,7 +357,7 @@ exports.signin = (req, res) => {
     });
 };
 /**
- * @description staff login
+ * @description staff login (UPDATED: Supports email or username)
  * @param {Object} req
  * @param {Object} req.body
  * @param {string} req.body.username
@@ -286,7 +367,9 @@ exports.signin = (req, res) => {
 exports.staffSignin = async (req, res) => {
   const { username, password } = req.body;
 
-  return db.Staff.findOne({ where: { username } })
+  return db.Staff.findOne({
+    where: { [Op.or]: [{ username: username }, { email: username }] },
+  })
     .then(async (result) => {
       if (result) {
         const validPassword = await bcrypt.compare(password, result.password);
@@ -307,7 +390,7 @@ exports.staffSignin = async (req, res) => {
         }
       } else {
         return res.status(400).json({
-          err: "Staff with this username does not exist.",
+          err: "Staff with this email/username does not exist.",
         });
       }
     })
@@ -318,7 +401,7 @@ exports.staffSignin = async (req, res) => {
 };
 
 /**
- * @description company user login (uses Users table)
+ * @description company user login (uses CompanyDashboard table)
  * @param {Object} req
  * @param {Object} req.body
  * @param {string} req.body.email
@@ -329,19 +412,61 @@ exports.companySignin = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await db.User.findOne({
-      where: { email }
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ err: "Email and password are required." });
+    }
+
+    const user = await db.CompanyDashboard.findOne({
+      where: normalizedEmailWhere(normalizedEmail),
     });
 
     if (!user) {
-      return res.status(400).json({
-        err: "User with this email does not exist.",
+      const request = await db.CompanyRequest.findOne({
+        where: normalizedEmailWhere(normalizedEmail),
       });
-    }
-
-    if (user.activate !== 1 && user.activate !== true) {
+      if (request) {
+        if (request.status === "rejected") {
+          return res.status(403).json({
+            err: "Your company signup request was rejected. Please contact support.",
+          });
+        }
+        return res.status(403).json({
+          err: "Your company signup request is pending approval.",
+        });
+      }
+      const approvedCompany = await db.Company.findOne({
+        where: normalizedEmailWhere(normalizedEmail),
+      });
+      if (approvedCompany) {
+        const temporaryPassword = generator.generate({
+          length: 22,
+          numbers: true,
+          symbols: true,
+          uppercase: true,
+          lowercase: true,
+          strict: true,
+        });
+        const temporaryHash = await bcrypt.hash(temporaryPassword, 12);
+        try {
+          await db.CompanyDashboard.create({
+            name: approvedCompany.name || "Company",
+            description: approvedCompany.description || "",
+            email: normalizedEmail,
+            password: temporaryHash,
+            logo: approvedCompany.logo || "",
+          });
+        } catch (provisionErr) {
+          if (provisionErr.name !== "SequelizeUniqueConstraintError") {
+            console.error("Auto-provision company dashboard user failed:", provisionErr);
+          }
+        }
+        return res.status(403).json({
+          err: "Your company is approved but login profile was missing. It is now created. Please use Forgot Password once, then sign in.",
+        });
+      }
       return res.status(400).json({
-        err: "Please activate your account before signing in.",
+        err: "Company with this email does not exist.",
       });
     }
 
@@ -446,153 +571,965 @@ exports.adminMiddleware = (req, res, next) => {
       return res.status(400).json({ err });
     });
 };
+
 /**
- * @description send the new password to the user email
+ * @description send 6-digit verification code to the user/staff email
  * @param {Object} req
  * @param {Object} req.body
  * @param {String} req.body.email
  * @param {*} res
  * @returns {String}
  */
-exports.forgotPassword = (req, res) => {
+exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    return db.User.findOne({ where: { email } })
-      .then(async (result) => {
-        if (result) {
-          // generate an eigth character long password
-          let password = generator.generate({
-            length: 8,
-            numbers: true,
-          });
-          pass = await bcrypt.hash(password, 12);
-          // send to the email account
-          const info = await transporter.sendMail({
-            from: process.env.GMAIL, // sender address
-            to: email, // list of receivers
-            subject: "Forget password", // Subject line
-            text: `Welcome, Use this password to login: ${password}`, // plain text body
+    // Check Staff first since this is the dashboard backend
+    const staff = await db.Staff.findOne({ where: { email } });
+    const company = !staff ? await db.CompanyDashboard.findOne({ where: { email } }) : null;
+    const user = (!staff && !company) ? await db.User.findOne({ where: { email } }) : null;
+    const target = staff || company || user;
 
-            html: `<style>@import url('https://fonts.googleapis.com/css2?family=Cabin&display=swap');</style>
-<div style="border: 1px solid rgba(244,151,3,.8); border-radius: 5px; padding: 30px;">&nbsp; &nbsp;&nbsp; &nbsp;
-  <div style="text-align: center; font-family: 'Cabin', sans-serif; margin: auto;">
-    <img style="display: block; margin-left: auto; margin-right: auto;" src="https://api.infoethiopia.net/images/logo.png" alt="" height="150">
-    <div style="color: #143d59; font-size: 14px; margin: 20px;">
-      <strong> 
-      <strong>
-        <span style=" letter-spacing: 4px;">THANKS FOR CHOOSING US!</span></strong>
-       
-      </strong>
-    </div>
-    <div style="margin: 0px 60px 20px; height: 0.2px; background-color: rgba(244,151,3,.8);">&nbsp;</div>
-    <div style="color: #143d59; font-size: 20px; margin: 20px 0px 30px;">Wellcome.</div>
-    <span style="color: #143d59;">  
-    <span style="font-size: 20px; ">Use this password to login: ${password}.</span>
-    </span>
-  </div>
-</div>`,
-          });
-
-          if (info.accepted.length > 0) {
-            // update the password with the new generated one
-            return db.User.update({ password: pass }, { where: { email } })
-              .then(() => {
-                return res.json({
-                  message: `Your new password is sent to ${email}. Check your email.`,
-                });
-              })
-              .catch((err) => {
-                return res.json({ err });
-              });
-          } else {
-            return res.json({
-              err: "could not send the code to the email, Try again.",
-            });
-          }
-        } else {
-          return res.json({
-            err: "User not found, try with email you have registerd with.",
-          });
-        }
-      })
-      .catch((err) => {
-        return res.json({ err: "Something went wrong, Try again." });
+    if (!target) {
+      return res.json({
+        err: "Account not found with this email in our staff or user records.",
       });
+    }
+
+    const code = (Math.floor(Math.random() * 900000) + 100000).toString(); // 6 digit code
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await db.PasswordResetCode.create({
+      email,
+      code,
+      expiresAt,
+      used: false,
+    });
+
+    const info = await sendMail({
+      from: `InfoEthiopia Support <${process.env.GMAIL}>`,
+      to: email,
+      subject: "Password Reset Verification Code",
+      html: buildResetCodeEmail(code),
+    });
+
+    if (info.accepted.length > 0) {
+      return res.json({
+        message: `Verification code sent to ${email}.`,
+      });
+    } else {
+      return res.json({
+        err: "could not send the code to the email, Try again.",
+      });
+    }
   } catch (err) {
-    return res.json({ err: "something is not right, try again." });
+    console.error("Forgot Password Error:", err);
+    return res.status(500).json({ err: "something is not right, try again." });
   }
 };
+
+/**
+ * @description verify the 6-digit code (Generic for User/Staff)
+ */
+exports.verifyCode = async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const record = await db.PasswordResetCode.findOne({
+      where: { email: normalizedEmail, code, used: false },
+      order: [["createdAt", "DESC"]],
+    });
+    if (!record || record.expiresAt < new Date()) {
+      return res.json({ err: "Invalid or expired verification code." });
+    }
+    return res.json({ message: "Code verified successfully." });
+  } catch (err) {
+    return res.status(500).json({ err: "Error verifying code." });
+  }
+};
+
+/**
+ * @description reset password using verified code (Generic for User/Staff)
+ */
+exports.resetPassword = async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  try {
+    const record = await db.PasswordResetCode.findOne({
+      where: { email, code, used: false },
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      return res.status(400).json({ err: "Invalid or expired verification code." });
+    }
+
+    const staff = await db.Staff.findOne({ where: { email } });
+    const company = !staff ? await db.CompanyDashboard.findOne({ where: { email } }) : null;
+    const user = (!staff && !company) ? await db.User.findOne({ where: { email } }) : null;
+
+    const target = staff || company || user;
+    const model = staff ? db.Staff : (company ? db.CompanyDashboard : db.User);
+
+    if (!target) {
+      return res.status(400).json({ err: "Invalid request. Account not found." });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await model.update({ password: hashed }, { where: { email } });
+    await record.update({ used: true });
+
+    return res.json({ message: "Password has been reset successfully." });
+  } catch (err) {
+    console.error("Reset Password Error:", err);
+    return res.status(500).json({ err: "Error resetting password." });
+  }
+};
+
+exports.getAllStaffs = async (req, res) => {
+  try {
+    const staffs = await db.Staff.findAll({
+      include: [{ model: db.Role, as: "assignedRole" }],
+      attributes: { exclude: ["password"] }
+    });
+    return res.json({ data: staffs });
+  } catch (err) {
+    console.error("Get Staffs Error:", err);
+    return res.status(500).json({ err: "Error fetching staffs" });
+  }
+};
+
+exports.deleteStaff = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.Staff.destroy({ where: { Id: id } });
+    return res.json({ message: "Staff deleted successfully" });
+  } catch (err) {
+    return res.status(500).json({ err: "Error deleting staff" });
+  }
+};
+
+exports.updateStaffRole = async (req, res) => {
+  const { staffId, roleId } = req.body;
+  try {
+    await db.Staff.update({ roleId }, { where: { Id: staffId } });
+    return res.json({ message: "Staff role updated successfully" });
+  } catch (err) {
+    return res.status(500).json({ err: "Error updating staff role" });
+  }
+};
+
 /**
  * @description send the new password to the admin email account
- * @param {Object} req
- * @param {Object} req.body
- * @param {String} req.body.email
- * @param {*} res
- * @returns {String}
+ * (Keeping this for admin legacy or removing if no longer needed, 
+ * but user said generic code is better)
  */
 exports.adminForgetpassword = async (req, res) => {
+  // We can redirect this to the main forgotPassword flow if wanted, 
+  // but keeping for now as is.
   try {
-    // get the admin account from the environment variables
     const email = process.env.ADMIN_EMAIL;
-    // generate an eigth character long password
     let password = generator.generate({
       length: 8,
       numbers: true,
     });
-    pass = await bcrypt.hash(password, 12);
-    // send the new password to the admin email
+    const pass = await bcrypt.hash(password, 12);
     const info = await transporter.sendMail({
-      from: process.env.GMAIL, // sender address
-      to: email, // list of receivers
-      subject: "Admin forget password", // Subject line
-      text: `Welcome, Use this password to login: ${password}`, // plain text body
-
-      html: `<style>@import url('https://fonts.googleapis.com/css2?family=Cabin&display=swap');</style>
-<div style="border: 1px solid rgba(244,151,3,.8); border-radius: 5px; padding: 30px;">&nbsp; &nbsp;&nbsp; &nbsp;
-  <div style="text-align: center; font-family: 'Cabin', sans-serif; margin: auto;">
-    <img style="display: block; margin-left: auto; margin-right: auto;" src="https://api.infoethiopia.net/images/logo.png" alt="" height="150">
-    <div style="color: #143d59; font-size: 14px; margin: 20px;">
-      <strong> 
-      <strong>
-        <span style=" letter-spacing: 4px;">THANKS FOR CHOOSING US!</span></strong>
-       
-      </strong>
-    </div>
-    <div style="margin: 0px 60px 20px; height: 0.2px; background-color: rgba(244,151,3,.8);">&nbsp;</div>
-    <div style="color: #143d59; font-size: 20px; margin: 20px 0px 30px;">Wellcome.</div>
-    <span style="color: #143d59;">  
-    <span style="font-size: 20px; ">Use this password to login: ${password}.</span>
-    </span>
-  </div>
-</div>`,
+      from: process.env.GMAIL,
+      to: email,
+      subject: "Admin forget password",
+      text: `Welcome, Use this password to login: ${password}`,
+      html: `<h3>Welcome, Use this password to login: ${password}</h3>`,
     });
     if (info.accepted.length > 0) {
       return db.Staff.findOne({ where: { username: "admin" } })
         .then((result) => {
-          if (!result)
-            return res.status(400).json({ err: "Error finding the user." });
-          return result
-            .update({ password: pass })
-            .then(() => {
-              return res.json({
-                message: `Your new password is sent to ${email}. Check your email.`,
-              });
-            })
-            .catch((err) => {
-              return res.status(400).json({ err });
-            });
-        })
-        .catch((err) => {
-          return res.status(400).json({ err });
+          if (!result) return res.status(400).json({ err: "Error finding the user." });
+          return result.update({ password: pass }).then(() => {
+            return res.json({ message: `Your new password is sent to ${email}.` });
+          });
         });
     } else {
-      return res
-        .status(400)
-        .json({ err: "could not send the code to the email, Try again." });
+      return res.status(400).json({ err: "could not send the code." });
     }
   } catch (err) {
-    console.log(err);
-    return res.status(400).json({ err: "Something went wrong. " });
+    return res.status(400).json({ err: "Something went wrong." });
   }
 };
 
+
+/**
+ * @description check if company email exists in Companies table
+ */
+exports.checkCompanyEmail = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const company = await db.Company.findOne({ where: { email } });
+    if (company) {
+      return res.json({ exists: true, company });
+    } else {
+      return res.json({ exists: false });
+    }
+  } catch (err) {
+    return res.status(500).json({ err: "Error checking company email" });
+  }
+};
+
+/**
+ * @description company signup - saves only to companyRequests table (pending approval)
+ */
+exports.companySignup = async (req, res) => {
+    try {
+      if (req.is("multipart/form-data")) {
+        try {
+          await uploadLicenceImage(req, res);
+        } catch (uploadErr) {
+          console.error("Company signup upload error:", uploadErr);
+          return res.status(400).json({ err: uploadErr.message || "File upload failed." });
+        }
+      }
+
+      const {
+        email,
+        password,
+        name,
+        description,
+        web,
+        pobox,
+        woreda,
+        city,
+        subCity,
+        state,
+        kebele,
+        street,
+        phone,
+        officePhone,
+        fax,
+        catagoryId,
+        customCategory,
+        customSubCategory,
+      } = req.body;
+      const normalizedEmail = String(email || "").trim().toLowerCase();
+
+      const logo = req.files && req.files.image
+        ? `${process.env.BASE_URL}/images/${req.files.image[0].filename}`
+        : req.body.logo;
+      const licence = req.files && req.files.licence
+        ? `${process.env.BASE_URL}/docs/${req.files.licence[0].filename}`
+        : null;
+
+      if (!name || !normalizedEmail || !password || !city || !phone || !officePhone || !catagoryId) {
+        return res.status(400).json({
+          err: "Name, email, password, category, city, personal phone, and office phone are required.",
+        });
+      }
+      const emailRegex = /\S+@\S+\.\S+/;
+      if (!emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({ err: "Please provide a valid company email." });
+      }
+
+      if (!licence) {
+        return res.status(400).json({ err: "Company licence file is required." });
+      }
+
+      const numericOnly = (value) =>
+        value === undefined || value === null || value === "" || /^\d+$/.test(String(value));
+      const textOnly = (value) =>
+        value === undefined || value === null || value === "" || /^[A-Za-z\s]+$/.test(String(value));
+
+      if (!numericOnly(phone)) {
+        return res.status(400).json({ err: "Personal phone must contain numbers only." });
+      }
+      if (!numericOnly(officePhone)) {
+        return res.status(400).json({ err: "Office phone must contain numbers only." });
+      }
+      if (!numericOnly(fax)) {
+        return res.status(400).json({ err: "Fax must contain numbers only." });
+      }
+      if (!numericOnly(pobox)) {
+        return res.status(400).json({ err: "P.O. Box must contain numbers only." });
+      }
+      if (!numericOnly(woreda)) {
+        return res.status(400).json({ err: "Woreda must contain numbers only." });
+      }
+      if (!textOnly(city)) {
+        return res.status(400).json({ err: "City must contain text only." });
+      }
+      if (!textOnly(subCity)) {
+        return res.status(400).json({ err: "Sub city must contain text only." });
+      }
+      if (!textOnly(state)) {
+        return res.status(400).json({ err: "State must contain text only." });
+      }
+      if (!textOnly(kebele)) {
+        return res.status(400).json({ err: "Kebele must contain text only." });
+      }
+
+      const selectedCatagory = await db.Catagory.findOne({ where: { Id: catagoryId } });
+      if (!selectedCatagory) {
+        return res.status(400).json({ err: "Selected category is invalid." });
+      }
+
+      const selectedCategoryName = String(selectedCatagory.name || "").trim().toLowerCase();
+      const isOtherCategory = selectedCategoryName === "other" || selectedCategoryName === "others";
+      const trimmedCustomCategory = customCategory ? String(customCategory).trim() : "";
+      const trimmedCustomSubCategory = customSubCategory ? String(customSubCategory).trim() : "";
+      if (isOtherCategory && !trimmedCustomSubCategory) {
+        return res.status(400).json({
+          err: "Please provide custom sub category for Other.",
+        });
+      }
+
+      const existing = await db.CompanyDashboard.findOne({
+        where: normalizedEmailWhere(normalizedEmail),
+      });
+      if (existing) {
+        return res.json({ err: "Company already registered for dashboard access." });
+      }
+
+      const existingRequest = await db.CompanyRequest.findOne({
+        where: normalizedEmailWhere(normalizedEmail),
+      });
+      if (existingRequest) {
+        return res.json({ err: "A company request with this email already exists." });
+      }
+
+      const hashedLabel = await bcrypt.hash(password, 12);
+      const customCategoryNote =
+        isOtherCategory
+          ? `Custom Category: ${trimmedCustomCategory || selectedCatagory.name} | Custom Sub Category: ${trimmedCustomSubCategory}`
+          : "";
+      const mergedDescription = [description || "", customCategoryNote]
+        .filter(Boolean)
+        .join("\n\n");
+
+      await db.CompanyRequest.create({
+        name,
+        description: mergedDescription || null,
+        email: normalizedEmail,
+        web: web || null,
+        catagoryId,
+        logo: logo || null,
+        licence,
+        slug: slugify(name),
+        city,
+        state: state || null,
+        street: street || null,
+        kebele: kebele || null,
+        woreda: woreda || null,
+        subCity: subCity || null,
+        pobox: pobox || null,
+        phone,
+        officePhone,
+        fax: fax || null,
+        password: hashedLabel,
+        status: "pending",
+      });
+
+      return res.json({
+        message: "Signup request submitted successfully. Please wait for approval before signing in.",
+      });
+    } catch (err) {
+      console.error("Company Signup Error:", err);
+      return res.status(500).json({
+      err: err.message || "Error during company registration.",
+      details: err.errors?.[0]?.message,
+    });
+  }
+};
+
+/**
+ * @description send 6-digit verification code for company forgot password
+ */
+exports.sendVerificationCode = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const staff = await db.Staff.findOne({ where: normalizedEmailWhere(normalizedEmail) });
+    const company = !staff
+      ? await db.CompanyDashboard.findOne({ where: normalizedEmailWhere(normalizedEmail) })
+      : null;
+    const target = staff || company;
+
+    if (!target) {
+      return res.json({ err: "Account not found with this email." });
+    }
+
+    const code = (Math.floor(Math.random() * 900000) + 100000).toString(); // 6 digit code
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await db.PasswordResetCode.create({
+      email: normalizedEmail,
+      code,
+      expiresAt,
+      used: false,
+    });
+
+    const info = await sendMail({
+      from: `InfoEthiopia Support <${process.env.GMAIL}>`,
+      to: normalizedEmail,
+      subject: "Password Reset Verification Code",
+      html: buildResetCodeEmail(code),
+    });
+
+    if (info.accepted.length > 0) {
+      return res.json({ message: `Verification code sent to ${normalizedEmail}.` });
+    } else {
+      return res.json({ err: "Could not send verification code." });
+    }
+  } catch (err) {
+    console.error("Send Code Error:", err);
+    return res.status(500).json({ err: "Error sending verification code." });
+  }
+};
+
+/**
+ * @description verify the 6-digit code for company (Already exists, but generic one also works)
+ */
+// Exports generic verifyCode above
+// exports.verifyCode = ...
+
+/**
+ * @description reset password using the verified email and code (Generic one above covers this)
+ */
+// exports.companyResetPassword = ...
+exports.companyResetPassword = async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  try {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const record = await db.PasswordResetCode.findOne({
+      where: { email: normalizedEmail, code, used: false },
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      return res.status(400).json({ err: "Invalid or expired verification code." });
+    }
+
+    const company = await db.CompanyDashboard.findOne({
+      where: normalizedEmailWhere(normalizedEmail),
+    });
+
+    if (!company) {
+      return res.status(400).json({ err: "Invalid request. Company account not found." });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await company.update({ password: hashed });
+    await record.update({ used: true });
+
+    return res.json({ message: "Password has been reset successfully." });
+  } catch (err) {
+    console.error("Company Reset Password Error:", err);
+    return res.status(500).json({ err: "Error resetting password." });
+  }
+};
+
+/**
+ * @description Google OAuth signin for company users
+ * Verifies Google ID token, then checks if email exists in CompanyDashboard
+ */
+exports.googleSignin = async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) {
+    return res.status(400).json({ err: "Google ID token is required." });
+  }
+  try {
+    const { OAuth2Client } = require("google-auth-library");
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const emailVerified = payload.email_verified;
+
+    if (!email) {
+      return res.status(400).json({ err: "Could not retrieve email from Google account." });
+    }
+    if (!emailVerified) {
+      return res.status(400).json({ err: "Google account email is not verified." });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // Check if company with this email exists in our dashboard
+    const user = await db.CompanyDashboard.findOne({ where: { email: normalizedEmail } });
+    if (!user) {
+      const request = await db.CompanyRequest.findOne({ where: { email: normalizedEmail } });
+      if (request) {
+        if (request.status === "rejected") {
+          return res.status(403).json({
+            err: "Your company signup request was rejected. Please contact support.",
+          });
+        }
+        return res.status(403).json({
+          err: "Your company signup request is pending approval.",
+        });
+      }
+      return res.status(400).json({
+        err: "No approved company dashboard account found with this Google email.",
+      });
+    }
+
+    const token = jwt.sign({ Id: user.Id }, process.env.LOGIN_SECRET, {
+      expiresIn: "6h",
+    });
+
+    user.dataValues.password = undefined;
+    user.dataValues.code = undefined;
+    user.dataValues.role = 0;
+
+    res.cookie("token", token, { expiresIn: "6h" });
+    return res.status(200).json({ user: { ...user.dataValues }, token });
+  } catch (err) {
+    console.error("Google Signin Error:", err);
+    return res.status(400).json({ err: "Invalid Google token or authentication failed." });
+  }
+};
+
+const getCompanyContextByEmail = async (email) => {
+  const company = await db.Company.findOne({
+    where: { email },
+    order: [["createdAt", "DESC"]],
+  });
+
+  if (!company) {
+    return {
+      company: null,
+      address: null,
+      phoneRecord: null,
+      officeRecord: null,
+      faxRecord: null,
+    };
+  }
+
+  const [address, phoneRecord, officeRecord, faxRecord] = await Promise.all([
+    db.Address.findOne({ where: { companyId: company.Id } }),
+    db.PhoneNumber.findOne({
+      where: { companyId: company.Id },
+      order: [["createdAt", "DESC"]],
+    }),
+    db.OfficeNumber.findOne({
+      where: { companyId: company.Id },
+      order: [["createdAt", "DESC"]],
+    }),
+    db.Fax.findOne({
+      where: { companyId: company.Id },
+      order: [["createdAt", "DESC"]],
+    }),
+  ]);
+
+  return { company, address, phoneRecord, officeRecord, faxRecord };
+};
+
+const buildCompanyProfilePayload = ({
+  dashboardUser,
+  company,
+  address,
+  phoneRecord,
+  officeRecord,
+  faxRecord,
+}) => {
+  return {
+    companyId: company ? company.Id : null,
+    name: company?.name || dashboardUser?.name || "",
+    description: company?.description || dashboardUser?.description || "",
+    email: dashboardUser?.email || company?.email || "",
+    web: company?.web || "",
+    pobox: address?.pobox || "",
+    woreda: address?.wereda || "",
+    city: address?.city || "",
+    subCity: address?.sub_city || "",
+    state: address?.state || "",
+    kebele: address?.kebele || "",
+    street: address?.street_no || "",
+    phone: phoneRecord?.phone_no || "",
+    officePhone: officeRecord?.office_no || "",
+    fax: faxRecord?.fax || "",
+    logo: company?.logo || dashboardUser?.logo || "",
+    licence: company?.licence || "",
+  };
+};
+
+/**
+ * @description Fetch company profile with all signup fields for company dashboard users
+ */
+exports.getCompanyProfile = async (req, res) => {
+  try {
+    const userId = req.user.Id;
+    const dashboardUser = await db.CompanyDashboard.findOne({ where: { Id: userId } });
+    if (!dashboardUser) {
+      return res.status(400).json({ err: "Company account not found." });
+    }
+
+    const context = await getCompanyContextByEmail(dashboardUser.email);
+    const profile = buildCompanyProfilePayload({
+      dashboardUser,
+      ...context,
+    });
+
+    return res.json({ profile });
+  } catch (err) {
+    console.error("Get Company Profile Error:", err);
+    return res.status(500).json({ err: "Error fetching company profile." });
+  }
+};
+
+/**
+ * @description send company signin support message to Telegram
+ */
+exports.sendSupportToTelegram = async (req, res) => {
+  try {
+    const {
+      fullName,
+      email,
+      companyName,
+      phone,
+      issueType,
+      subject,
+      description,
+      page,
+    } = req.body || {};
+
+    const trimmedFullName = String(fullName || "").trim();
+    const trimmedEmail = String(email || "").trim().toLowerCase();
+    const trimmedCompanyName = String(companyName || "").trim();
+    const trimmedPhone = String(phone || "").trim();
+    const trimmedIssueType = String(issueType || "").trim();
+    const trimmedSubject = String(subject || "").trim();
+    const trimmedDescription = String(description || "").trim();
+    const trimmedPage = String(page || "company-signin").trim();
+
+    if (!trimmedFullName || !trimmedEmail || !trimmedSubject || !trimmedDescription) {
+      return res.status(400).json({
+        err: "Full name, email, subject, and issue details are required.",
+      });
+    }
+
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({ err: "Please provide a valid email address." });
+    }
+
+    const botToken = process.env.SUPPORT_TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
+    const chatId = process.env.SUPPORT_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+    if (!botToken || !chatId) {
+      return res.status(500).json({
+        err: "Support channel is not configured yet. Set SUPPORT_TELEGRAM_BOT_TOKEN/BOT_TOKEN and SUPPORT_TELEGRAM_CHAT_ID.",
+      });
+    }
+
+    const messageLines = [
+      "NEW SUPPORT REQUEST",
+      `Time: ${new Date().toISOString()}`,
+      `Page: ${trimmedPage}`,
+      `Full Name: ${trimmedFullName}`,
+      `Email: ${trimmedEmail}`,
+      `Company: ${trimmedCompanyName || "N/A"}`,
+      `Phone: ${trimmedPhone || "N/A"}`,
+      `Issue Type: ${trimmedIssueType || "General"}`,
+      `Subject: ${trimmedSubject}`,
+      "Details:",
+      trimmedDescription,
+    ];
+
+    await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      chat_id: chatId,
+      text: messageLines.join("\n"),
+      disable_web_page_preview: true,
+    });
+
+    return res.json({
+      message: "Support request sent successfully. Our team will review it shortly.",
+    });
+  } catch (err) {
+    const telegramErr = err.response?.data || err.message;
+    console.error("Support Telegram Error:", telegramErr);
+    return res.status(500).json({
+      err: "Failed to send support request. Please try again shortly.",
+    });
+  }
+};
+
+/**
+ * @description Update company profile with all signup fields
+ */
+exports.updateCompanyProfile = async (req, res) => {
+  let transaction = null;
+  let committed = false;
+  const uploadedFiles = [];
+  try {
+    if (req.is("multipart/form-data")) {
+      try {
+        await uploadLicenceImage(req, res);
+      } catch (uploadErr) {
+        return res.status(400).json({ err: uploadErr.message || "File upload failed." });
+      }
+    }
+
+    if (req.files && req.files.image && req.files.image[0]) {
+      uploadedFiles.push(path.resolve(UPLOADS_ROOT, "images", req.files.image[0].filename));
+    }
+    if (req.files && req.files.licence && req.files.licence[0]) {
+      uploadedFiles.push(path.resolve(UPLOADS_ROOT, "docs", req.files.licence[0].filename));
+    }
+
+    const fail = async (status, message) => {
+      if (uploadedFiles.length) {
+        await safeDeleteFiles(uploadedFiles);
+      }
+      return res.status(status).json({ err: message });
+    };
+
+    const userId = req.user.Id;
+    const dashboardUser = await db.CompanyDashboard.findOne({ where: { Id: userId } });
+    if (!dashboardUser) {
+      return fail(400, "Company account not found.");
+    }
+
+    const {
+      name,
+      description,
+      email,
+      oldPassword,
+      newPassword,
+      confirmNewPassword,
+      web,
+      pobox,
+      woreda,
+      city,
+      subCity,
+      state,
+      kebele,
+      street,
+      phone,
+      officePhone,
+      fax,
+    } = req.body;
+
+    const normalizedEmail = String(email || dashboardUser.email || "")
+      .trim()
+      .toLowerCase();
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      return fail(400, "A valid company email is required.");
+    }
+
+    if (!name || !city || !phone || !officePhone) {
+      return fail(400, "Name, email, city, personal phone, and office phone are required.");
+    }
+
+    const numericOnly = (value) =>
+      value === undefined || value === null || value === "" || /^\d+$/.test(String(value));
+    const textOnly = (value) =>
+      value === undefined || value === null || value === "" || /^[A-Za-z\s]+$/.test(String(value));
+
+    if (!numericOnly(phone)) {
+      return fail(400, "Personal phone must contain numbers only.");
+    }
+    if (!numericOnly(officePhone)) {
+      return fail(400, "Office phone must contain numbers only.");
+    }
+    if (!numericOnly(fax)) {
+      return fail(400, "Fax must contain numbers only.");
+    }
+    if (!numericOnly(pobox)) {
+      return fail(400, "P.O. Box must contain numbers only.");
+    }
+    if (!numericOnly(woreda)) {
+      return fail(400, "Woreda must contain numbers only.");
+    }
+    if (!textOnly(city)) {
+      return fail(400, "City must contain text only.");
+    }
+    if (!textOnly(subCity)) {
+      return fail(400, "Sub city must contain text only.");
+    }
+    if (!textOnly(state)) {
+      return fail(400, "State must contain text only.");
+    }
+    if (!textOnly(kebele)) {
+      return fail(400, "Kebele must contain text only.");
+    }
+
+    const trimmedOldPassword = oldPassword ? String(oldPassword).trim() : "";
+    const trimmedNewPassword = newPassword ? String(newPassword).trim() : "";
+    const trimmedConfirmPassword = confirmNewPassword ? String(confirmNewPassword).trim() : "";
+    const hasPasswordChangeInput = Boolean(
+      trimmedOldPassword || trimmedNewPassword || trimmedConfirmPassword
+    );
+
+    if (hasPasswordChangeInput) {
+      if (!trimmedOldPassword || !trimmedNewPassword || !trimmedConfirmPassword) {
+        return fail(400, "Old password, new password, and retype new password are required.");
+      }
+      if (trimmedNewPassword.length < 6) {
+        return fail(400, "New password must be at least 6 characters.");
+      }
+      if (trimmedNewPassword !== trimmedConfirmPassword) {
+        return fail(400, "New password and retype new password do not match.");
+      }
+      if (trimmedOldPassword === trimmedNewPassword) {
+        return fail(400, "New password must be different from old password.");
+      }
+
+      const validOldPassword = await bcrypt.compare(
+        trimmedOldPassword,
+        dashboardUser.password || ""
+      );
+      if (!validOldPassword) {
+        return fail(400, "Old password is incorrect.");
+      }
+    }
+
+    const context = await getCompanyContextByEmail(dashboardUser.email);
+    if (!context.company) {
+      return fail(400, "Approved company profile not found for this account.");
+    }
+
+    const existingDashboardEmail = await db.CompanyDashboard.findOne({
+      where: {
+        email: normalizedEmail,
+        Id: { [Op.ne]: dashboardUser.Id },
+      },
+    });
+    if (existingDashboardEmail) {
+      return fail(400, "That email is already used by another company account.");
+    }
+
+    const existingCompanyEmail = await db.Company.findOne({
+      where: {
+        email: normalizedEmail,
+        Id: { [Op.ne]: context.company.Id },
+      },
+    });
+    if (existingCompanyEmail) {
+      return fail(400, "That email is already used by another company profile.");
+    }
+
+    const hasNewLogoUpload = Boolean(req.files && req.files.image && req.files.image[0]);
+    const hasNewLicenceUpload = Boolean(req.files && req.files.licence && req.files.licence[0]);
+    const previousCompanyLogo = context.company.logo || null;
+    const previousDashboardLogo = dashboardUser.logo || null;
+    const previousLicence = context.company.licence || null;
+
+    const logo =
+      hasNewLogoUpload
+        ? `${process.env.BASE_URL}/images/${req.files.image[0].filename}`
+        : req.body.logo || context.company.logo || dashboardUser.logo || null;
+    const licence =
+      hasNewLicenceUpload
+        ? `${process.env.BASE_URL}/docs/${req.files.licence[0].filename}`
+        : req.body.licence || context.company.licence || null;
+
+    transaction = await db.sequelize.transaction();
+
+    await context.company.update(
+      {
+        name,
+        description: description !== undefined ? description : context.company.description,
+        web: web !== undefined ? web : context.company.web,
+        email: normalizedEmail,
+        logo,
+        licence,
+        slug: name ? slugify(name) : context.company.slug,
+      },
+      { transaction }
+    );
+
+    const addressPayload = {
+      city,
+      state: state || null,
+      street_no: street || null,
+      kebele: kebele || null,
+      wereda: woreda || null,
+      sub_city: subCity || null,
+      pobox: pobox || null,
+    };
+
+    if (context.address) {
+      await context.address.update(addressPayload, { transaction });
+    } else {
+      await db.Address.create(
+        {
+          ...addressPayload,
+          location: { type: "Point", coordinates: [0, 0] },
+          companyId: context.company.Id,
+        },
+        { transaction }
+      );
+    }
+
+    if (context.phoneRecord) {
+      await context.phoneRecord.update({ phone_no: phone }, { transaction });
+    } else {
+      await db.PhoneNumber.create(
+        { phone_no: phone, companyId: context.company.Id },
+        { transaction }
+      );
+    }
+
+    if (context.officeRecord) {
+      await context.officeRecord.update({ office_no: officePhone }, { transaction });
+    } else {
+      await db.OfficeNumber.create(
+        { office_no: officePhone, companyId: context.company.Id },
+        { transaction }
+      );
+    }
+
+    const normalizedFax = fax === undefined || fax === null ? "" : String(fax).trim();
+    if (normalizedFax) {
+      if (context.faxRecord) {
+        await context.faxRecord.update({ fax: normalizedFax }, { transaction });
+      } else {
+        await db.Fax.create({ fax: normalizedFax, companyId: context.company.Id }, { transaction });
+      }
+    } else if (context.faxRecord) {
+      await context.faxRecord.destroy({ transaction });
+    }
+
+    const dashboardUpdatePayload = {
+      name,
+      description: description !== undefined ? description : dashboardUser.description,
+      email: normalizedEmail,
+      logo,
+    };
+    if (hasPasswordChangeInput) {
+      dashboardUpdatePayload.password = await bcrypt.hash(trimmedNewPassword, 12);
+    }
+
+    await dashboardUser.update(dashboardUpdatePayload, { transaction });
+    await transaction.commit();
+    committed = true;
+
+    await safeDeleteFiles([
+      hasNewLogoUpload && previousCompanyLogo !== logo ? getLocalUploadPath(previousCompanyLogo) : null,
+      hasNewLogoUpload && previousDashboardLogo !== logo ? getLocalUploadPath(previousDashboardLogo) : null,
+      hasNewLicenceUpload && previousLicence !== licence ? getLocalUploadPath(previousLicence) : null,
+    ]);
+
+    const refreshed = await getCompanyContextByEmail(dashboardUser.email);
+    const profile = buildCompanyProfilePayload({
+      dashboardUser,
+      ...refreshed,
+    });
+
+    dashboardUser.dataValues.password = undefined;
+    dashboardUser.dataValues.role = 0;
+    return res.json({
+      message: "Profile updated successfully.",
+      user: { ...dashboardUser.dataValues },
+      profile,
+    });
+  } catch (err) {
+    if (transaction && !committed) {
+      await transaction.rollback();
+    }
+    if (!committed && uploadedFiles.length) {
+      await safeDeleteFiles(uploadedFiles);
+    }
+    console.error("Update Company Profile Error:", err);
+    return res.status(500).json({ err: "Error updating company profile." });
+  }
+};

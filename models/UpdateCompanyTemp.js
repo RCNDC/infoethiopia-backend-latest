@@ -27,7 +27,7 @@ module.exports = (sequelize, dataTypes) => {
     email: {
       type: dataTypes.STRING,
     },
-    
+
     city: {
       type: dataTypes.STRING,
       // allowNull: false,
@@ -55,7 +55,12 @@ module.exports = (sequelize, dataTypes) => {
     pobox: {
       type: dataTypes.STRING,
     },
-    
+    status: {
+      type: dataTypes.STRING,
+      defaultValue: "pending", // pending, approved, rejected
+    }
+  }, {
+    tableName: "updatecompanyRequests"
   });
   TempCompanyFile.associate = (models) => {
     TempCompanyFile.belongsTo(models.Catagory, {

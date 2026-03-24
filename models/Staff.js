@@ -47,14 +47,18 @@ module.exports = (sequelize, dataTypes) => {
       type: dataTypes.STRING,
       allowNull: false,
     },
-    role: {
+    roleId: {
       type: dataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
   }, {
     tableName: "Staffs"
   });
   Staff.associate = (models) => {
+    Staff.belongsTo(models.Role, {
+      foreignKey: "roleId",
+      as: "assignedRole"
+    });
     Staff.hasMany(models.RecentCompany, {
       foreignKey: {
         name: "callCenterId",

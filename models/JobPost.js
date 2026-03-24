@@ -20,8 +20,15 @@ module.exports = (sequelize, dataTypes) => {
         },
         approved: {
             type: dataTypes.BOOLEAN,
-            defaultValue: false,
+            allowNull: true,
+            defaultValue: null,
             field: "approved",
+        },
+        status: {
+            type: dataTypes.STRING,
+            allowNull: true,
+            defaultValue: "pending",
+            field: "status",
         },
         companyId: {
             type: dataTypes.UUID,
@@ -35,6 +42,13 @@ module.exports = (sequelize, dataTypes) => {
         JobPost.belongsTo(models.Company, {
             foreignKey: {
                 name: "companyId",
+            },
+            onDelete: "cascade",
+        });
+        JobPost.hasMany(models.JobApplicant, {
+            foreignKey: {
+                name: "jobPostId",
+                allowNull: false,
             },
             onDelete: "cascade",
         });

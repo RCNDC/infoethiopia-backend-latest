@@ -27,9 +27,9 @@ const jobRoute = require("./router/job.router");
 const adRoute = require("./router/ad.router");
 
 const issue2options = {
-  origin: "*",
+  origin: true, // Reflect the request origin in the Access-Control-Allow-Origin header
   allowedHeaders:
-    "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length,token",
+    "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length, token",
   methods: ["GET", "PUT", "POST", "DELETE"],
   credentials: true,
 };
@@ -41,6 +41,7 @@ app.use(morgan("dev"));
 app.use(cookieParser());
 app.use(cors({ ...issue2options }));
 app.use(express.static("uploads"));
+app.use("/api/images", express.static("uploads/images"));
 
 app.use("/api", authRoute);
 app.use("/api", callCenterRoute);
@@ -67,3 +68,4 @@ const startServer = async () => {
   }
 };
 startServer();
+

@@ -6,6 +6,13 @@ const uploadLicenceImage = require("../router/uploadlicence.helper");
 const { Op } = require("sequelize");
 const _ = require("lodash");
 const { default: slugify } = require("slugify");
+const { sendMail, buildStatusEmail } = require("../utils/mailer");
+
+const normalizedEmailWhere = (emailValue) =>
+  db.sequelize.where(
+    db.sequelize.fn("LOWER", db.sequelize.fn("TRIM", db.sequelize.col("email"))),
+    emailValue
+  );
 
 /**
  * @description add company
@@ -653,22 +660,15 @@ exports.viewRecentCompany = (req, res) => {
  * @returns {Array}
  */
 exports.getAllRequestedCompanies = (req, res) => {
-  return db.Company.findAll({
-    include: [
-      { model: db.Address },
-      { model: db.Catagory },
-      { model: db.News },
-      { model: db.OfficeNumber },
-      { model: db.PhoneNumber },
-      { model: db.SocialMedia },
-      { model: db.Fax },
-    ],
-    where: { approved: false },
+  return db.CompanyRequest.findAll({
+    include: [{ model: db.Catagory }],
+    order: [["createdAt", "DESC"]],
   })
     .then((result) => {
       return res.json({ result });
     })
     .catch((err) => {
+      console.log(err);
       return res.status(400).json({ err: "Error finding the companies." });
     });
 };
@@ -678,25 +678,211 @@ exports.getAllRequestedCompanies = (req, res) => {
  * @param {*} res
  * @returns {String}
  */
-exports.approveRequestedCompanies = (req, res) => {
+exports.approveRequestedCompanies = async (req, res) => {
   const Id = req.params.Id;
-  return db.Company.findOne({ where: { Id } })
-    .then((result) => {
-      if (!result)
-        return res.status(400).json({ err: "Error finding the company." });
-      return result
-        .update({ approved: true })
-        .then(() => {
-          return res.json({ message: "Company has been approved." });
-        })
-        .catch((err) => {
-          return res.status(400).json({ err: "Error updating the company." });
+  let transaction = null;
+  try {
+    const request = await db.CompanyRequest.findOne({ where: { Id } });
+    if (!request) {
+      return res.status(400).json({ err: "Error finding the company request." });
+    }
+
+    const {
+      name,
+      description,
+      email,
+      web,
+      catagoryId,
+      logo,
+      licence,
+      city,
+      state,
+      street, // Field name in CompanyRequest model
+      kebele,
+      woreda, // Field name in CompanyRequest model
+      subCity, // Field name in CompanyRequest model
+      pobox,
+      lat,
+      long,
+      phone, // Field name in CompanyRequest model
+      officePhone, // Field name in CompanyRequest model
+      fax,
+      password,
+    } = request;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+
+    // Check availability
+    const existing = await db.Company.findOne({
+      where: { [Op.or]: [{ name }, normalizedEmailWhere(normalizedEmail)] },
+    });
+    if (existing) {
+      return res.status(400).json({
+        err: "Company with this name or email already exists in main table.",
+      });
+    }
+
+    const existingDashboard = await db.CompanyDashboard.findOne({
+      where: normalizedEmailWhere(normalizedEmail),
+    });
+    if (!existingDashboard && !password) {
+      return res.status(400).json({
+        err: "This request has no password. Add password support to companyRequests and resubmit signup.",
+      });
+    }
+
+    transaction = await db.sequelize.transaction();
+
+    const slug = slugify(name);
+    // Create Company
+    const newCompany = await db.Company.create({
+      name,
+      description,
+      catagoryId,
+      logo,
+      licence,
+      web,
+      email: normalizedEmail,
+      slug,
+      approved: true,
+    }, { transaction });
+
+    // Create Address
+    const point = { type: "Point", coordinates: [lat || 0, long || 0] };
+
+    await db.Address.create({
+      city,
+      state,
+      street_no: street, // Map street -> street_no
+      kebele,
+      wereda: woreda, // Map woreda -> wereda
+      sub_city: subCity, // Map subCity -> sub_city
+      location: point,
+      companyId: newCompany.Id,
+      pobox,
+    }, { transaction });
+
+    if (phone) {
+      await db.PhoneNumber.create({
+        phone_no: phone, // Map phone -> phone_no
+        companyId: newCompany.Id,
+      }, { transaction });
+    }
+    if (officePhone) {
+      await db.OfficeNumber.create({
+        office_no: officePhone, // Map officePhone -> office_no
+        companyId: newCompany.Id,
+      }, { transaction });
+    }
+    if (fax) {
+      await db.Fax.create({
+        fax,
+        companyId: newCompany.Id,
+      }, { transaction });
+    }
+
+    if (!existingDashboard) {
+      await db.CompanyDashboard.create({
+        name,
+        description: description || "",
+        email: normalizedEmail,
+        password,
+        logo: logo || "",
+      }, { transaction });
+    } else {
+      await existingDashboard.update({
+        name,
+        description: description || existingDashboard.description || "",
+        email: normalizedEmail,
+        logo: logo || existingDashboard.logo || "",
+        ...(password ? { password } : {}),
+      }, { transaction });
+    }
+
+    // Delete request after approval (move from source to destination)
+    await request.destroy({ transaction });
+    await transaction.commit();
+
+    // Send Approval Email
+    if (normalizedEmail) {
+      try {
+        await sendMail({
+          from: "InfoEthiopia Support <info@infoethiopia.net>",
+          to: normalizedEmail,
+          subject: "Company Registration Approved",
+          html: buildStatusEmail({
+            type: "company",
+            approved: true,
+            companyName: name,
+          }),
+          replyTo: "contact@infoethiopia.net",
         });
+      } catch (mailErr) {
+        console.error("Company approval email failed:", mailErr);
+      }
+    }
+
+    return res.json({ message: "Company successfully approved and created." });
+
+  } catch (err) {
+    if (transaction) {
+      await transaction.rollback();
+    }
+    console.error(err);
+    return res.status(400).json({ err: "Error approving the company." });
+  }
+};
+
+exports.deleteRequestedCompany = (req, res) => {
+  const Id = req.params.Id;
+  return db.CompanyRequest.destroy({ where: { Id } })
+    .then(() => {
+      return res.json({ message: "Company request successfully deleted." });
     })
-    .catch(() => {
-      return res.status(400).json({ err: "Something's not right try again." });
+    .catch((err) => {
+      return res.status(400).json({ err: "Error deleting the company request." });
     });
 };
+/**
+ * @description reject company requested by user (soft reject - updates status)
+ * @param {*} req
+ * @param {*} res
+ * @returns {String}
+ */
+exports.rejectRequestedCompany = async (req, res) => {
+  const Id = req.params.Id;
+  try {
+    const request = await db.CompanyRequest.findOne({ where: { Id } });
+    if (!request) {
+      return res.status(400).json({ err: "Company request not found." });
+    }
+
+    await request.update({ status: "rejected" });
+
+    // Send Rejection Email
+    if (request.email) {
+      try {
+        await sendMail({
+          from: "InfoEthiopia Support <support@infoethiopia.net>",
+          to: request.email,
+          subject: "Company Registration Request Disapproved",
+          html: buildStatusEmail({
+            type: "company",
+            approved: false,
+            companyName: request.name,
+          }),
+          replyTo: "contact@infoethiopia.net",
+        });
+      } catch (mailErr) {
+        console.error("Company rejection email failed:", mailErr);
+      }
+    }
+    return res.json({ message: "Company request rejected successfully." });
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ err: "Error rejecting company request." });
+  }
+};
+
 /**
  * @description user add company
  * @param {*} req
@@ -729,11 +915,16 @@ exports.userAddCompany = async (req, res) => {
   try {
     let image = true;
     await uploadLicenceImage(req, res);
-    if (!req.files.licence) {
-      return res.json({ err: "Please upload a file." });
+
+    // Licence check is optional or required? Code implied required.
+    // if (!req.files.licence) ...
+
+    let licenceURI = null;
+    if (req.files && req.files.licence) {
+      licenceURI = `${process.env.BASE_URL}/docs/${req.files.licence[0].filename}`;
     }
-    let licenceURI = `${process.env.BASE_URL}/docs/${req.files.licence[0].filename}`;
-    if (req.files.image == undefined) {
+
+    if (req.files && req.files.image == undefined) {
       image = false;
     }
 
@@ -742,113 +933,72 @@ exports.userAddCompany = async (req, res) => {
       description,
       city,
       state,
-      street,
+      street, // mapped to street_no
       kebele,
       lat,
       long,
       wereda,
-      subCity,
+      subCity, // mapped to sub_city
       catagoryId,
-      phoneNumber,
-      officeNumber,
+      phoneNumber, // mapped to phone_no
+      officeNumber, // mapped to office_no
       pobox,
       web,
       fax,
       email,
-      // socialMedias,
-      // services,
     } = req.body;
+
     let imageURI = undefined;
-    if (image)
+    if (image && req.files.image)
       imageURI = `${process.env.BASE_URL}/images/${req.files.image[0].filename}`;
 
-    const point = { type: "Point", coordinates: [lat, long] };
-    return db.Company.findOne({ where: { name } })
-      .then((result) => {
-        if (result) {
-          return res.json({
-            err: "There is already a company with this name.",
-          });
-        }
-        return db.Company.create({
-          name,
-          description,
-          catagoryId,
-          logo: imageURI,
-          approved: false,
-          web,
-          email,
-          licence: licenceURI,
-          slug: slugify(name),
-        })
-          .then(async (result) => {
-            await db.Address.create({
-              city,
-              state,
-              street_no: street,
-              kebele,
-              wereda,
-              sub_city: subCity,
-              location: point,
-              companyId: result.Id,
-              pobox,
-            });
-            if (phoneNumber) {
-              await db.PhoneNumber.create({
-                phone_no: phoneNumber,
-                companyId: result.Id,
-              });
-            }
+    // Validate unique name in CompanyRequest AND Company
+    const existsInMain = await db.Company.findOne({ where: { name } });
+    if (existsInMain) {
+      return res.json({ err: "Company name already exists." });
+    }
+    const existsInRequest = await db.CompanyRequest.findOne({ where: { name } });
+    if (existsInRequest) {
+      return res.json({ err: "Company request with this name already pending." });
+    }
 
-            if (officeNumber) {
-              await db.OfficeNumber.create({
-                office_no: officeNumber,
-                companyId: result.Id,
-              });
-            }
-            if (fax) {
-              await db.Fax.create({
-                fax,
-                companyId: result.Id,
-              });
-            }
-            //  if (JSON.parse(services).length > 0) {
-            //    await db.Service.bulkCreate(
-            //      _.map(JSON.parse(services), (o) =>
-            //        _.extend({ companyId: result.Id }, o)
-            //      )
-            //    );
-            //  }
+    return db.CompanyRequest.create({
+      name,
+      description,
+      email,
+      web,
+      catagoryId,
+      logo: imageURI,
+      licence: licenceURI,
 
-            //  if (JSON.parse(socialMedias).length > 0) {
-            //    await db.SocialMedia.bulkCreate(
-            //      _.map(JSON.parse(socialMedias), (o) =>
-            //        _.extend({ companyId: result.Id }, o)
-            //      )
-            //    );
-            //  }
-            return res.json({
-              message:
-                "Company successfully created, admin will approve it shortly.",
-            });
-          })
-          .catch((err) => {
-            console.log(err);
-            return res.json({ err: "Error creating the company." });
-          });
-      })
-      .catch((err) => {
-        console.log(err);
-        return res.json({ err: "Error finding the company." });
-      });
-  } catch (err) {
-    if (err.message) return res.json({ err: err.message });
+      // Address
+      city,
+      state,
+      street_no: street,
+      kebele,
+      wereda,
+      sub_city: subCity,
+      pobox,
+      lat: parseFloat(lat),
+      long: parseFloat(long),
 
-    return res.json({
-      err,
+      // Contact
+      phone_no: phoneNumber,
+      office_no: officeNumber,
+      fax: fax,
+
+      status: "pending"
+    }).then(() => {
+      return res.json({ message: "Company request submitted successfully." });
     });
+
+  } catch (err) {
+    console.error(err);
+    if (err.message) return res.json({ err: err.message });
+    return res.status(500).json({ err });
   }
 };
+
 
 /**
  * @description Add company from Forminator form submission
@@ -893,72 +1043,54 @@ exports.addCompanyFromForminator = async (req, res) => {
       'phone-1': phoneNumber,
       'phone-2': officeNumber,
       'number-4': fax,
-      'upload-1': logo,
-      'upload-2': licence,
     } = req.body;
+
+    const logo = req.files && req.files['upload-1'] ? `${process.env.BASE_URL}/images/${req.files['upload-1'][0].filename}` : null;
+    const licence = req.files && req.files['upload-2'] ? `${process.env.BASE_URL}/docs/${req.files['upload-2'][0].filename}` : null;
 
     // Validate required fields
     if (!name) {
       return res.status(400).json({ err: "Company name is required." });
     }
 
-    // Check if company already exists
-    const existingCompany = await db.Company.findOne({ where: { name } });
-    if (existingCompany) {
-      return res.status(400).json({
-        err: "There is already a company with this name.",
-      });
+    // Validate unique name in CompanyRequest AND Company
+    const existsInMain = await db.Company.findOne({ where: { name } });
+    if (existsInMain) {
+      return res.status(400).json({ err: "Company name already exists." });
+    }
+    const existsInRequest = await db.CompanyRequest.findOne({ where: { name } });
+    if (existsInRequest) {
+      return res.status(400).json({ err: "Company request with this name already pending." });
     }
 
-    // Create company with approved: false for admin review
-    const company = await db.Company.create({
+    // Create Company Request
+    await db.CompanyRequest.create({
       name,
-      description: description || "",
-      catagoryId: catagoryId || null,
-      logo: logo || null,
-      licence: licence || null,
-      approved: false, // Pending admin approval
-      web: web || "",
-      email: email || "",
-      slug: slugify(name),
+      description,
+      catagoryId,
+      logo,
+      licence,
+      web,
+      email,
+
+      // Address
+      city,
+      state,
+      street_no: street,
+      kebele,
+      wereda,
+      sub_city: subCity,
+      pobox,
+      lat: null,
+      long: null,
+
+      // Contact
+      phone_no: phoneNumber,
+      office_no: officeNumber,
+      fax: fax ? fax.toString() : null,
+
+      status: "pending"
     });
-
-    // Create address record
-    await db.Address.create({
-      city: city || "",
-      state: state || "",
-      street_no: street || "",
-      kebele: kebele || "",
-      wereda: wereda || "",
-      sub_city: subCity || "",
-      location: null, // No coordinates from form
-      companyId: company.Id,
-      pobox: pobox || "",
-    });
-
-    // Create phone number if provided
-    if (phoneNumber) {
-      await db.PhoneNumber.create({
-        phone_no: phoneNumber,
-        companyId: company.Id,
-      });
-    }
-
-    // Create office number if provided
-    if (officeNumber) {
-      await db.OfficeNumber.create({
-        office_no: officeNumber,
-        companyId: company.Id,
-      });
-    }
-
-    // Create fax if provided
-    if (fax) {
-      await db.Fax.create({
-        fax: fax.toString(),
-        companyId: company.Id,
-      });
-    }
 
     return res.json({
       success: true,
@@ -972,6 +1104,8 @@ exports.addCompanyFromForminator = async (req, res) => {
     });
   }
 };
+
+
 
 /**
  * @description user add company
@@ -1171,14 +1305,8 @@ exports.approveUpdateCompanyRequest = (req, res) => {
                 pobox: pobox || undefined,
               });
 
-              return tempResult
-                .destroy()
-                .then(() => {
-                  return res.json({ message: "Company successfully updated." });
-                })
-                .catch((err) => {
-                  return res.status(400).json({ err });
-                });
+              await tempResult.destroy();
+              return res.json({ message: "Company successfully updated." });
             })
             .catch((err) => {
               console.log(err);
@@ -1188,10 +1316,12 @@ exports.approveUpdateCompanyRequest = (req, res) => {
             });
         })
         .catch((err) => {
+          console.log(err);
           return res.status(400).json({ err: "Error finding the company." });
         });
     })
     .catch((err) => {
+      console.log(err);
       return res.status(400).json({ err: "Error approving the company." });
     });
 };
@@ -1233,6 +1363,51 @@ exports.deleteUpdateCompanyRequest = (req, res) => {
     })
     .catch((err) => {
       return res.status(400).json({ err: "Error deleting the request." });
+    });
+};
+
+/**
+ * @description reject company update request
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
+exports.rejectUpdateCompanyRequest = (req, res) => {
+  const Id = req.params.Id;
+  return db.TempCompanyFile.findOne({ where: { Id } })
+    .then((result) => {
+      if (!result) {
+        return res.status(404).json({ err: "Company update request not found." });
+      }
+      return result
+        .update({ status: "rejected" })
+        .then(async () => {
+          // Send Rejection Email for Update
+          if (result.email) {
+            try {
+              await sendMail({
+                from: "InfoEthiopia Support <support@infoethiopia.net>",
+                to: result.email,
+                subject: "Company Update Request Disapproved",
+                html: buildStatusEmail({
+                  type: "company",
+                  approved: false,
+                  companyName: result.name,
+                }),
+                replyTo: "contact@infoethiopia.net",
+              });
+            } catch (mailErr) {
+              console.error("Company update rejection email failed:", mailErr);
+            }
+          }
+          return res.json({ message: "Company update request rejected successfully." });
+        })
+        .catch((err) => {
+          return res.status(400).json({ err: "Error rejecting the request." });
+        });
+    })
+    .catch((err) => {
+      return res.status(400).json({ err: "Error rejecting the request." });
     });
 };
 /**
@@ -1405,6 +1580,7 @@ exports.viewAllCompanyWithPage = (req, res) => {
       { model: db.Fax },
     ],
     where: { approved: true },
+    order: [["createdAt", "DESC"]],
   })
     .then((result) => {
       return db.Company.count({

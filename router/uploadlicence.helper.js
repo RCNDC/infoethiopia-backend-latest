@@ -22,20 +22,20 @@ let uploadLicenceFile = multer({
   fileFilter(req, file, cb) {
     if (
       file.fieldname == "image" &&
-      !file.originalname.match(/\.(jpg|jpeg|png)$/)
+      !file.originalname.match(/\.(jpg|jpeg|png|webp|avif|gif|svg)$/i)
     ) {
       return cb(
         new Error(
-          "Image format is not valid, Only .png, .jpg and .jpeg format allowed!"
+          "Image format is not valid. Allowed: .jpg, .jpeg, .png, .webp, .avif, .gif, .svg"
         ),
         false
       );
     } else if (
       file.fieldname == "licence" &&
-      !file.originalname.match(/\.(pdf)$/)
+      !file.originalname.match(/\.(pdf|jpg|jpeg|png|webp|avif|gif|svg)$/i)
     ) {
       return cb(
-        new Error("licence formate is not valid, Only pdf format allowed!"),
+        new Error("Licence format is not valid. Allowed: PDF or image files."),
         false
       );
     }

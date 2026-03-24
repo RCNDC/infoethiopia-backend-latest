@@ -23,8 +23,15 @@ module.exports = (sequelize, dataTypes) => {
         },
         approved: {
             type: dataTypes.BOOLEAN,
-            defaultValue: false,
+            allowNull: true,
+            defaultValue: null,
             field: "approved",
+        },
+        status: {
+            type: dataTypes.STRING,
+            allowNull: true,
+            defaultValue: "pending",
+            field: "status",
         },
         companyID: {
             type: dataTypes.CHAR(36),
