@@ -1,7 +1,6 @@
 const db = require("../models");
-const { join } = require("path");
-const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
+const { getLocalUploadPath, safeDeleteFiles } = require("../utils/uploadPaths");
 /**
  * @description fetch all ads
  * @param {*} req
@@ -30,17 +29,10 @@ exports.deleteAd = async (req, res) => {
       .then((result) => {
         if (!result)
           return res.status(400).json({ err: "Error finding the ad." });
-        let filePath = join(
-          __dirname,
-          `../../uploads/images/${result.imageURI.split("images")[1]}`
-        );
         return result
           .destroy()
           .then(async () => {
-            await fs.unlink(filePath, async (err) => {
-              if (err) throw new Error(err);
-              return;
-            });
+            await safeDeleteFiles([getLocalUploadPath(result.imageURI)]);
             return res.json({ message: "Ad successfully deleted." });
           })
           .catch((err) => {

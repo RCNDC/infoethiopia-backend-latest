@@ -79,6 +79,35 @@ const buildStatusEmail = ({ type, approved, title, companyName }) => {
   return baseTemplate(statusLine, body, preheader);
 };
 
+const buildApplicantUpdateEmail = ({
+  applicantName,
+  companyName,
+  jobTitle,
+  status,
+  message,
+}) => {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const title = normalizedStatus === "rejected"
+    ? "Job Application Update"
+    : normalizedStatus === "accepted"
+      ? "Job Application Accepted"
+      : "Job Application Under Review";
+  const preheader = `Your application for ${jobTitle || "this role"} at ${companyName || "InfoEthiopia"} is ${normalizedStatus || "updated"}.`;
+  const defaultMessage = normalizedStatus === "rejected"
+    ? `Thank you for applying for <strong>${jobTitle || "this role"}</strong>. After review, the company decided not to move forward with this application.`
+    : normalizedStatus === "accepted"
+      ? `Congratulations. Your application for <strong>${jobTitle || "this role"}</strong> has been accepted by <strong>${companyName || "the company"}</strong>.`
+      : `Your application for <strong>${jobTitle || "this role"}</strong> is currently under review by <strong>${companyName || "the company"}</strong>.`;
+
+  const body = `
+    <p>Dear <strong>${applicantName || "Applicant"}</strong>,</p>
+    <p>${defaultMessage}</p>
+    ${message ? `<div style="margin-top:16px; padding:16px; border-radius:10px; background:#f3f4f6;">${message}</div>` : ""}
+  `;
+
+  return baseTemplate(title, body, preheader);
+};
+
 const sendMail = async ({ to, subject, html, from, replyTo }) => {
   return transporter.sendMail({
     from,
@@ -93,4 +122,5 @@ module.exports = {
   sendMail,
   buildResetCodeEmail,
   buildStatusEmail,
+  buildApplicantUpdateEmail,
 };

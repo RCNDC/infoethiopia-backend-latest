@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const db = require("./models");
 const cookieParser = require("cookie-parser");
-require("dotenv").config();
+require("./config/loadEnv");
 const app = express();
 const morgan = require("morgan");
 // authentication route
@@ -26,20 +26,62 @@ const jobRoute = require("./router/job.router");
 // ads route
 const adRoute = require("./router/ad.router");
 
-const issue2options = {
-  origin: true, // Reflect the request origin in the Access-Control-Allow-Origin header
+const rootHealthHtml = Buffer.from(
+  "<!doctype html><html><head><title>InfoEthiopia Backend</title></head><body>InfoEthiopia Backend is running.</body></html>"
+);
+
+const defaultAllowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://managecompany.infoethiopia.net",
+  "https://infoethiopia.net",
+  "https://www.infoethiopia.net",
+];
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || defaultAllowedOrigins.join(","))
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("CORS origin not allowed."));
+  },
   allowedHeaders:
     "x-access-token, Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length, token",
   methods: ["GET", "PUT", "POST", "DELETE"],
   credentials: true,
+  optionsSuccessStatus: 204,
 };
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 app.use(morgan("dev"));
 app.use(cookieParser());
-app.use(cors({ ...issue2options }));
+app.use(cors(corsOptions));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
+
+app.get("/", (req, res) => {
+  res.status(200);
+  res.setHeader("Content-Type", "text/html");
+  res.send(rootHealthHtml);
+});
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use(express.static("uploads"));
 app.use("/api/images", express.static("uploads/images"));
 
@@ -68,4 +110,3 @@ const startServer = async () => {
   }
 };
 startServer();
-

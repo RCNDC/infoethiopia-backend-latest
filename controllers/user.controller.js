@@ -1,9 +1,8 @@
-const { join } = require("path");
-const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
 const db = require("../models");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
+const { getLocalUploadPath, safeDeleteFiles } = require("../utils/uploadPaths");
 const transporter = nodemailer.createTransport({
   host: "infoethiopia.net",
   port: 465,
@@ -39,17 +38,7 @@ exports.updateProfilePicture = async (req, res) => {
           return res.status(400).json({ err: "Error finding the user" });
         }
 
-        if (result.profilePicture) {
-          fs.unlink(
-            join(
-              __filename,
-              `../../uploads/images/${result.profilePicture.split("images")[1]}`
-            ),
-            (err) => {
-              if (err) throw new Error(err);
-            }
-          );
-        }
+        await safeDeleteFiles([getLocalUploadPath(result.profilePicture)]);
 
         let profileURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
         return result.update({ profilePicture: profileURI }).then(() => {

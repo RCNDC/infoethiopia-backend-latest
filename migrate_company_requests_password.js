@@ -1,6 +1,6 @@
 const { Sequelize } = require("sequelize");
 const env = process.env.NODE_ENV || "development";
-const config = require("./config/config.json")[env];
+const config = require("./config/config.js")[env];
 
 if (!config) {
   console.error(`Invalid NODE_ENV "${env}". Expected one of: development, test, production.`);

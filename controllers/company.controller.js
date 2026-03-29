@@ -1,5 +1,3 @@
-const { join } = require("path");
-const fs = require("fs");
 const db = require("../models");
 const uploadImage = require("../router/upload.helper");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
@@ -7,6 +5,7 @@ const { Op } = require("sequelize");
 const _ = require("lodash");
 const { default: slugify } = require("slugify");
 const { sendMail, buildStatusEmail } = require("../utils/mailer");
+const { getLocalUploadPath, safeDeleteFiles } = require("../utils/uploadPaths");
 
 const normalizedEmailWhere = (emailValue) =>
   db.sequelize.where(
@@ -424,24 +423,13 @@ exports.updateCompany = async (req, res) => {
         return db.Company.findOne({
           include: { model: db.Address },
           where: { Id },
-        }).then((result) => {
+        }).then(async (result) => {
           if (!result) {
             return res.status(400).json({ err: "Couldn't find the company." });
           }
           let imageURI = undefined;
           if (image) {
-            if (result.logo) {
-              // delete the previous company logo if it's updated
-              fs.unlink(
-                join(
-                  __filename,
-                  `../../uploads/images/${result.logo.split("images")[1]}`
-                ),
-                (err) => {
-                  if (err) throw new Error(err);
-                }
-              );
-            }
+            await safeDeleteFiles([getLocalUploadPath(result.logo)]);
             imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
           }
           return result
@@ -1469,24 +1457,13 @@ exports.adminUpdateUserRequest = async (req, res) => {
         }
         return db.TempCompanyFile.findOne({
           where: { Id },
-        }).then((result) => {
+        }).then(async (result) => {
           if (!result) {
             return res.status(400).json({ err: "Couldn't find the company." });
           }
           let imageURI = undefined;
           if (image) {
-            if (result.logo) {
-              // delete previous logo if it's updated
-              fs.unlink(
-                join(
-                  __filename,
-                  `../../uploads/images/${result.logo.split("images")[1]}`
-                ),
-                (err) => {
-                  if (err) throw new Error(err);
-                }
-              );
-            }
+            await safeDeleteFiles([getLocalUploadPath(result.logo)]);
             imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
           }
           return result

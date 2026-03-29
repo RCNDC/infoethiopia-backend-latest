@@ -2,13 +2,17 @@ const jwt = require("jsonwebtoken");
 const expressJ = require("express-jwt");
 const _ = require("lodash");
 const bcrypt = require("bcrypt");
-const axios = require("axios");
 const { Op } = require("sequelize");
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const db = require("../models");
 const { sendMail, buildResetCodeEmail } = require("../utils/mailer");
+const {
+  UPLOADS_ROOT,
+  getLocalUploadPath,
+  safeDeleteFiles,
+} = require("../utils/uploadPaths");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
 const slugify = require("slugify");
 let generator = require("generate-password");
@@ -20,64 +24,26 @@ const transporter = nodemailer.createTransport({
     user: process.env.GMAIL,
     pass: process.env.PASS,
   },
-  logger: true,
-  debug: true,
+  logger: false,
+  debug: false,
 });
-
-const UPLOADS_ROOT = path.resolve(__dirname, "..", "uploads");
-
-const getLocalUploadPath = (assetPath) => {
-  const raw = (assetPath || "").toString().trim();
-  if (!raw) return null;
-
-  let pathname = raw;
-  if (/^https?:\/\//i.test(raw)) {
-    try {
-      pathname = new URL(raw).pathname;
-    } catch (err) {
-      pathname = raw;
-    }
-  }
-
-  const normalizedPath = pathname.replace(/\\/g, "/");
-  const withoutApiPrefix = normalizedPath.replace(/^\/api\//i, "/");
-  const relativePath = withoutApiPrefix.replace(/^\/+/, "");
-  if (!relativePath.startsWith("images/") && !relativePath.startsWith("docs/")) {
-    return null;
-  }
-
-  const resolved = path.resolve(UPLOADS_ROOT, relativePath);
-  const uploadsRootWithSlash = UPLOADS_ROOT.endsWith(path.sep)
-    ? UPLOADS_ROOT
-    : `${UPLOADS_ROOT}${path.sep}`;
-  if (!resolved.toLowerCase().startsWith(uploadsRootWithSlash.toLowerCase())) {
-    return null;
-  }
-
-  return resolved;
-};
-
-const safeDeleteFile = async (filePath) => {
-  if (!filePath) return;
-  try {
-    await fs.promises.unlink(filePath);
-  } catch (err) {
-    if (err.code !== "ENOENT") {
-      console.warn("Failed to delete file:", filePath, err.message);
-    }
-  }
-};
-
-const safeDeleteFiles = async (paths) => {
-  const uniquePaths = [...new Set((paths || []).filter(Boolean))];
-  await Promise.all(uniquePaths.map((filePath) => safeDeleteFile(filePath)));
-};
 
 const normalizedEmailWhere = (emailValue) =>
   db.sequelize.where(
     db.sequelize.fn("LOWER", db.sequelize.fn("TRIM", db.sequelize.col("email"))),
     emailValue
   );
+
+const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+const getTokenCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
+    maxAge: TOKEN_TTL_MS,
+  };
+};
 
 /**
  * @description pre signup
@@ -332,7 +298,7 @@ exports.signin = (req, res) => {
             result.dataValues.profilePicture;
             result.dataValues.code = undefined;
             result.dataValues.password = undefined;
-            res.cookie("token", token, {});
+            res.cookie("token", token, getTokenCookieOptions());
             return res.json({ user: { ...result.dataValues }, token });
           } else {
             // if password don't match
@@ -379,7 +345,7 @@ exports.staffSignin = async (req, res) => {
             expiresIn: "6h",
           });
           result.dataValues.password = undefined;
-          res.cookie("token", token, { expiresIn: "6h" });
+          res.cookie("token", token, getTokenCookieOptions());
           return res
             .status(200)
             .json({ user: { ...result.dataValues }, token });
@@ -487,7 +453,7 @@ exports.companySignin = async (req, res) => {
     // Set role to 0 to indicate company user (for sidebar menu)
     user.dataValues.role = 0;
 
-    res.cookie("token", token, { expiresIn: "6h" });
+    res.cookie("token", token, getTokenCookieOptions());
     return res.status(200).json({ user: { ...user.dataValues }, token });
   } catch (err) {
     console.error("Company Signin Error:", err);
@@ -502,7 +468,7 @@ exports.companySignin = async (req, res) => {
  * @returns {String}
  */
 exports.signout = (req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", getTokenCookieOptions());
   return res.json({
     msg: "Signout success!",
   });
@@ -1079,7 +1045,7 @@ exports.googleSignin = async (req, res) => {
     user.dataValues.code = undefined;
     user.dataValues.role = 0;
 
-    res.cookie("token", token, { expiresIn: "6h" });
+    res.cookie("token", token, getTokenCookieOptions());
     return res.status(200).json({ user: { ...user.dataValues }, token });
   } catch (err) {
     console.error("Google Signin Error:", err);
@@ -1172,82 +1138,6 @@ exports.getCompanyProfile = async (req, res) => {
   } catch (err) {
     console.error("Get Company Profile Error:", err);
     return res.status(500).json({ err: "Error fetching company profile." });
-  }
-};
-
-/**
- * @description send company signin support message to Telegram
- */
-exports.sendSupportToTelegram = async (req, res) => {
-  try {
-    const {
-      fullName,
-      email,
-      companyName,
-      phone,
-      issueType,
-      subject,
-      description,
-      page,
-    } = req.body || {};
-
-    const trimmedFullName = String(fullName || "").trim();
-    const trimmedEmail = String(email || "").trim().toLowerCase();
-    const trimmedCompanyName = String(companyName || "").trim();
-    const trimmedPhone = String(phone || "").trim();
-    const trimmedIssueType = String(issueType || "").trim();
-    const trimmedSubject = String(subject || "").trim();
-    const trimmedDescription = String(description || "").trim();
-    const trimmedPage = String(page || "company-signin").trim();
-
-    if (!trimmedFullName || !trimmedEmail || !trimmedSubject || !trimmedDescription) {
-      return res.status(400).json({
-        err: "Full name, email, subject, and issue details are required.",
-      });
-    }
-
-    const emailRegex = /\S+@\S+\.\S+/;
-    if (!emailRegex.test(trimmedEmail)) {
-      return res.status(400).json({ err: "Please provide a valid email address." });
-    }
-
-    const botToken = process.env.SUPPORT_TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-    const chatId = process.env.SUPPORT_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
-    if (!botToken || !chatId) {
-      return res.status(500).json({
-        err: "Support channel is not configured yet. Set SUPPORT_TELEGRAM_BOT_TOKEN/BOT_TOKEN and SUPPORT_TELEGRAM_CHAT_ID.",
-      });
-    }
-
-    const messageLines = [
-      "NEW SUPPORT REQUEST",
-      `Time: ${new Date().toISOString()}`,
-      `Page: ${trimmedPage}`,
-      `Full Name: ${trimmedFullName}`,
-      `Email: ${trimmedEmail}`,
-      `Company: ${trimmedCompanyName || "N/A"}`,
-      `Phone: ${trimmedPhone || "N/A"}`,
-      `Issue Type: ${trimmedIssueType || "General"}`,
-      `Subject: ${trimmedSubject}`,
-      "Details:",
-      trimmedDescription,
-    ];
-
-    await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      chat_id: chatId,
-      text: messageLines.join("\n"),
-      disable_web_page_preview: true,
-    });
-
-    return res.json({
-      message: "Support request sent successfully. Our team will review it shortly.",
-    });
-  } catch (err) {
-    const telegramErr = err.response?.data || err.message;
-    console.error("Support Telegram Error:", telegramErr);
-    return res.status(500).json({
-      err: "Failed to send support request. Please try again shortly.",
-    });
   }
 };
 

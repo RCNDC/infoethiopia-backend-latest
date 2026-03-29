@@ -1,5 +1,5 @@
 const { Sequelize } = require('sequelize');
-const config = require('./config/config.json').development;
+const config = require("./config/config.js").development;
 
 // Try with original database name first
 const sequelize = new Sequelize('infoethiopianet_companyPortal', config.username, config.password, {

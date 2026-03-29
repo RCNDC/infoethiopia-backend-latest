@@ -21,6 +21,10 @@ const {
     companyUpdateJob,
     applyForJob,
     getJobApplicants,
+    getJobApplicantDetails,
+    updateJobApplicantStatus,
+    sendJobApplicantEmail,
+    archiveJobApplicant,
 } = require("../controllers/job.controller");
 
 route.post("/add-job", requireSignin, adminMiddleware, AddJob);
@@ -42,6 +46,10 @@ route.put("/approve-job/:Id", requireSignin, adminMiddleware, approveJob);
 route.put("/reject-job/:Id", requireSignin, adminMiddleware, rejectJob);
 route.get("/admin/all-jobs", requireSignin, adminMiddleware, getAllJobsForAdmin);
 route.get("/job-applicants/:Id", requireSignin, getJobApplicants);
+route.get("/job-applicant/:applicantId", requireSignin, getJobApplicantDetails);
+route.put("/job-applicant/:applicantId/status", requireSignin, updateJobApplicantStatus);
+route.post("/job-applicant/:applicantId/send-email", requireSignin, sendJobApplicantEmail);
+route.delete("/job-applicant/:applicantId/archive", requireSignin, archiveJobApplicant);
 
 // Company-specific routes (no adminMiddleware - authenticates via email)
 route.delete("/company-delete-job/:Id", requireSignin, companyDeleteJob);

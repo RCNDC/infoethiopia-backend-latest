@@ -1,8 +1,13 @@
-const { join } = require("path");
-const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
 const db = require("../models");
 const { Op } = require("sequelize");
+const { getLocalUploadPath, safeDeleteFiles } = require("../utils/uploadPaths");
+
+const normalizedCategoryNameWhere = (nameValue) =>
+  db.sequelize.where(
+    db.sequelize.fn("LOWER", db.sequelize.fn("TRIM", db.sequelize.col("name"))),
+    String(nameValue || "").trim().toLowerCase()
+  );
 /**
  * @description add category
  * @param {*} req
@@ -20,18 +25,22 @@ exports.addCatagory = async (req, res) => {
       return res.status(400).json({ err: "Please upload a file!" });
     }
     const { name, parent } = req.body;
+    const trimmedName = String(name || "").trim();
+    if (!trimmedName) {
+      return res.status(400).json({ err: "Category name is required." });
+    }
     //if parent is equal to null we are adding a main category and a sub category if not null
     const parentId = parent != "null" ? parent : null;
     const imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
 
-    return db.Catagory.findOne({ where: { name } }).then((result) => {
+    return db.Catagory.findOne({ where: normalizedCategoryNameWhere(trimmedName) }).then((result) => {
       if (result) {
         return res
           .status(400)
           .json({ err: "There is already a catagory with this name." });
       }
       return db.Catagory.create({
-        name,
+        name: trimmedName,
         image: imageURI,
         parentId,
       }).then(() => {
@@ -85,8 +94,12 @@ exports.updateCatagory = async (req, res) => {
     }
     const { name, parent } = req.body;
     const { Id } = req.params;
+    const trimmedName = String(name || "").trim();
+    if (!trimmedName) {
+      return res.status(400).json({ err: "Category name is required." });
+    }
     const parentId = parent != "null" ? parent : null;
-    return db.Catagory.findOne({ where: { name } }).then((result) => {
+    return db.Catagory.findOne({ where: normalizedCategoryNameWhere(trimmedName) }).then((result) => {
       if (result && result.Id != Id) {
         return res
           .status(400)
@@ -101,20 +114,11 @@ exports.updateCatagory = async (req, res) => {
         let imageURI = undefined;
 
         if (image) {
-          // delete the current image if it is updated
-          fs.unlink(
-            join(
-              __filename,
-              `../../uploads/images/${result.image.split("images")[1]}`
-            ),
-            (err) => {
-              if (err) throw new Error(err);
-            }
-          );
+          await safeDeleteFiles([getLocalUploadPath(result.image)]);
 
           imageURI = `${process.env.BASE_URL}/images/${req.file.filename}`;
         }
-        return result.update({ name, image: imageURI, parentId }).then(() => {
+        return result.update({ name: trimmedName, image: imageURI, parentId }).then(() => {
           return res.json({ message: "Catagory successfully updated." });
         });
       });
@@ -149,6 +153,7 @@ exports.viewMainCatagories = (req, res) => {
       },
     ],
     where: { parentId: null },
+    order: [["name", "ASC"]],
   })
     .then((result) => {
       return res.json({ result });
@@ -217,9 +222,13 @@ exports.viewAllCatagoriesWithChildren = (req, res) => {
  * @returns {Array}
  */
 exports.viewSubCatagories = (req, res) => {
-  const { Id } = req.body;
+  const Id = req.body?.Id || req.params?.Id || req.query?.Id || req.query?.parentId;
+  if (!Id) {
+    return res.status(400).json({ err: "Category Id is required." });
+  }
   return db.Catagory.findAll({
     where: { parentId: Id },
+    order: [["name", "ASC"]],
   })
     .then((result) => {
       return res.json({ result });

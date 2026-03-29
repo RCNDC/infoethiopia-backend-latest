@@ -21,7 +21,6 @@ const {
   googleSignin,
   getCompanyProfile,
   updateCompanyProfile,
-  sendSupportToTelegram,
 } = require("../controllers/auth.controller");
 const { requireSignin } = require("../controllers/auth.controller");
 const {
@@ -70,7 +69,6 @@ route.get("/role-menus/:roleId", getRoleMenus);
 
 route.post("/check-company-email", checkCompanyEmail);
 route.post("/company-signup", companySignup);
-route.post("/support-to-telegram", sendSupportToTelegram);
 route.post("/send-verification-code", sendVerificationCode);
 route.post("/verify-code", verifyCode);
 route.put("/company-reset-password", companyResetPassword);
@@ -79,6 +77,5 @@ route.get("/company-profile", requireSignin, getCompanyProfile);
 route.put("/company-profile", requireSignin, updateCompanyProfile);
 
 module.exports = route;
-
 
 

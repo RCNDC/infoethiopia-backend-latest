@@ -1,10 +1,9 @@
-const { join } = require("path");
-const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
 const db = require("../models");
 const { sendMail, buildStatusEmail } = require("../utils/mailer");
 const multer = require("multer");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
+const { getLocalUploadPath, safeDeleteFiles } = require("../utils/uploadPaths");
 
 const buildImageUrl = (filename) => {
   const base = (process.env.BASE_URL || "").replace(/\/+$/, "");
@@ -228,18 +227,7 @@ exports.updateNews = async (req, res) => {
       let imageURI = result.headingImage;
 
       if (image) {
-        // delete the previous image if it's updated
-        if (result.headingImage) {
-          fs.unlink(
-            join(
-              __filename,
-              `../../uploads/images/${result.headingImage.split("images")[1]}`
-            ),
-            (err) => {
-              if (err) console.log("Unlink error:", err);
-            }
-          );
-        }
+        await safeDeleteFiles([getLocalUploadPath(result.headingImage)]);
 
         imageURI = buildImageUrl(req.file.filename);
       }
@@ -508,5 +496,4 @@ exports.getAllCompanyNewsForAdmin = (req, res) => {
       return res.status(400).json({ err: "Error fetching company news." });
     });
 };
-
 

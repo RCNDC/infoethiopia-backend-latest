@@ -2,10 +2,22 @@ const { join } = require("path");
 const fs = require("fs");
 const uploadImage = require("../router/upload.helper");
 const db = require("../models");
-const { sendMail, buildStatusEmail } = require("../utils/mailer");
+const { sendMail, buildStatusEmail, buildApplicantUpdateEmail } = require("../utils/mailer");
 const uploadLicenceImage = require("../router/uploadlicence.helper");
 
 const toPlain = (record) => (record && typeof record.toJSON === "function" ? record.toJSON() : record);
+const JOB_APPLICANT_STATUSES = {
+    submitted: "submitted",
+    reviewing: "reviewing",
+    accepted: "accepted",
+    rejected: "rejected",
+};
+const EMPLOYMENT_TYPES = new Set(["full-time", "part-time"]);
+const WORK_MODES = new Set(["hybrid", "onsite", "remote"]);
+const normalizeText = (value) => {
+    const trimmed = String(value || "").trim();
+    return trimmed ? trimmed : null;
+};
 
 const attachApplicantCounts = async (jobs) => {
     const records = Array.isArray(jobs) ? jobs : [];
@@ -25,7 +37,7 @@ const attachApplicantCounts = async (jobs) => {
                 "jobPostId",
                 [db.sequelize.fn("COUNT", db.sequelize.col("Id")), "count"],
             ],
-            where: { jobPostId: jobIds },
+            where: { jobPostId: jobIds, archivedAt: null },
             group: ["jobPostId"],
             raw: true,
         });
@@ -47,6 +59,77 @@ const attachApplicantCounts = async (jobs) => {
             ...plain,
             applicantCount: countMap[plain.Id] || 0,
         };
+    });
+};
+
+const getApplicantAccessContext = async (requesterId, applicantId) => {
+    const applicant = await db.JobApplicant.findOne({
+        where: { Id: applicantId },
+        include: [{ model: db.JobPost }],
+    });
+    if (!applicant || !applicant.JobPost) {
+        return { applicant: null, job: null, company: null, staff: null };
+    }
+
+    const staff = await db.Staff.findOne({ where: { Id: requesterId } });
+    if (staff) {
+        const company = applicant.JobPost.companyId
+            ? await db.Company.findOne({ where: { Id: applicant.JobPost.companyId } })
+            : null;
+        return { applicant, job: applicant.JobPost, company, staff };
+    }
+
+    const dashboardUser = await db.CompanyDashboard.findOne({ where: { Id: requesterId } });
+    if (!dashboardUser) {
+        return { applicant: null, job: null, company: null, staff: null };
+    }
+
+    const company = await db.Company.findOne({
+        where: { email: dashboardUser.email },
+        order: [["createdAt", "DESC"]],
+    });
+    if (!company || applicant.JobPost.companyId !== company.Id) {
+        return { applicant: null, job: null, company: null, staff: null };
+    }
+
+    return { applicant, job: applicant.JobPost, company, staff: null };
+};
+
+const sendApplicantLifecycleEmail = async ({
+    applicant,
+    company,
+    job,
+    status,
+    subject,
+    message,
+}) => {
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    const emailSubject = normalizeText(subject)
+        || (normalizedStatus === JOB_APPLICANT_STATUSES.rejected
+            ? `Update on your application for ${job.Title || "this role"}`
+            : normalizedStatus === JOB_APPLICANT_STATUSES.accepted
+                ? `Next steps for ${job.Title || "this role"}`
+                : `Update on your application for ${job.Title || "this role"}`);
+    const emailMessage = normalizeText(message);
+
+    await sendMail({
+        from: "InfoEthiopia Jobs <job@infoethiopia.net>",
+        to: applicant.email,
+        subject: emailSubject,
+        html: buildApplicantUpdateEmail({
+            applicantName: applicant.fullName,
+            companyName: company?.name || job.Author || "the company",
+            jobTitle: job.Title || "this role",
+            status: normalizedStatus,
+            message: emailMessage,
+        }),
+        replyTo: company?.email || "contact@infoethiopia.net",
+    });
+
+    await applicant.update({
+        companyMessage: emailMessage || applicant.companyMessage,
+        lastEmailSubject: emailSubject,
+        lastEmailSentAt: new Date(),
     });
 };
 
@@ -345,7 +428,21 @@ exports.getAllJobsForAdmin = async (req, res) => {
 exports.applyForJob = async (req, res) => {
     try {
         const { Id } = req.params;
-        const { fullName, email, phone, cvLink, cvFileId, cvMessageId } = req.body;
+        const {
+            fullName,
+            email,
+            phone,
+            currentCompany,
+            employmentType,
+            workCountry,
+            workCity,
+            workMode,
+            workPeriod,
+            roleTitle,
+            education,
+            licensesAndCertifications,
+            skills,
+        } = req.body;
 
         if (!fullName || !email) {
             return res.status(400).json({ err: "Full name and email are required." });
@@ -355,6 +452,22 @@ exports.applyForJob = async (req, res) => {
         const emailRegex = /\S+@\S+\.\S+/;
         if (!emailRegex.test(normalizedEmail)) {
             return res.status(400).json({ err: "Please provide a valid email address." });
+        }
+
+        const normalizedEmploymentType = normalizeText(employmentType)?.toLowerCase() || null;
+        const normalizedWorkMode = normalizeText(workMode)?.toLowerCase() || null;
+        if (normalizedEmploymentType && !EMPLOYMENT_TYPES.has(normalizedEmploymentType)) {
+            return res.status(400).json({ err: "Employment type must be full-time or part-time." });
+        }
+        if (normalizedWorkMode && !WORK_MODES.has(normalizedWorkMode)) {
+            return res.status(400).json({ err: "Work mode must be hybrid, onsite, or remote." });
+        }
+        if (!normalizeText(currentCompany) || !normalizedEmploymentType || !normalizeText(workCountry)
+            || !normalizeText(workCity) || !normalizedWorkMode || !normalizeText(workPeriod)
+            || !normalizeText(roleTitle) || !normalizeText(education) || !normalizeText(skills)) {
+            return res.status(400).json({
+                err: "Current company, employment type, work country, work city, work mode, work period, role, education, and skills are required.",
+            });
         }
 
         const job = await db.JobPost.findOne({
@@ -374,10 +487,19 @@ exports.applyForJob = async (req, res) => {
         const applicant = await db.JobApplicant.create({
             fullName: String(fullName).trim(),
             email: normalizedEmail,
-            phone: phone ? String(phone).trim() : null,
-            cvLink: cvLink ? String(cvLink).trim() : null,
-            cvFileId: cvFileId ? String(cvFileId).trim() : null,
-            cvMessageId: cvMessageId ? String(cvMessageId).trim() : null,
+            phone: normalizeText(phone),
+            currentCompany: normalizeText(currentCompany),
+            employmentType: normalizedEmploymentType,
+            workCountry: normalizeText(workCountry),
+            workCity: normalizeText(workCity),
+            workMode: normalizedWorkMode,
+            workPeriod: normalizeText(workPeriod),
+            roleTitle: normalizeText(roleTitle),
+            education: normalizeText(education),
+            licensesAndCertifications: normalizeText(licensesAndCertifications),
+            skills: normalizeText(skills),
+            applicationStatus: JOB_APPLICANT_STATUSES.submitted,
+            statusUpdatedAt: new Date(),
             jobPostId: job.Id,
         });
 
@@ -431,7 +553,7 @@ exports.getJobApplicants = async (req, res) => {
         }
 
         const applicants = await db.JobApplicant.findAll({
-            where: { jobPostId: job.Id },
+            where: { jobPostId: job.Id, archivedAt: null },
             order: [["createdAt", "DESC"]],
         });
 
@@ -448,6 +570,178 @@ exports.getJobApplicants = async (req, res) => {
     } catch (err) {
         console.error("Get Job Applicants Error:", err);
         return res.status(500).json({ err: "Error fetching job applicants." });
+    }
+};
+
+/**
+ * @description get a single applicant and mark as reviewing when the company opens details
+ */
+exports.getJobApplicantDetails = async (req, res) => {
+    try {
+        const requesterId = req.user?.Id;
+        const { applicantId } = req.params;
+        const context = await getApplicantAccessContext(requesterId, applicantId);
+        if (!context.applicant || !context.job) {
+            return res.status(403).json({ err: "Not authorized to view this applicant." });
+        }
+        if (context.applicant.archivedAt && !context.staff) {
+            return res.status(404).json({ err: "Applicant not found." });
+        }
+
+        if (context.applicant.applicationStatus === JOB_APPLICANT_STATUSES.submitted) {
+            await context.applicant.update({
+                applicationStatus: JOB_APPLICANT_STATUSES.reviewing,
+                reviewedAt: context.applicant.reviewedAt || new Date(),
+                statusUpdatedAt: new Date(),
+            });
+            try {
+                await sendApplicantLifecycleEmail({
+                    applicant: context.applicant,
+                    company: context.company,
+                    job: context.job,
+                    status: JOB_APPLICANT_STATUSES.reviewing,
+                });
+            } catch (mailErr) {
+                console.error("Applicant reviewing email failed:", mailErr);
+            }
+        }
+
+        return res.json({
+            applicant: toPlain(context.applicant),
+            job: {
+                Id: context.job.Id,
+                Title: context.job.Title,
+            },
+        });
+    } catch (err) {
+        console.error("Get Job Applicant Detail Error:", err);
+        return res.status(500).json({ err: "Error fetching applicant details." });
+    }
+};
+
+/**
+ * @description update applicant status and send status emails for accepted/rejected
+ */
+exports.updateJobApplicantStatus = async (req, res) => {
+    try {
+        const requesterId = req.user?.Id;
+        const { applicantId } = req.params;
+        const { status, emailSubject, emailMessage, companyMessage } = req.body || {};
+        const normalizedStatus = String(status || "").trim().toLowerCase();
+
+        if (![JOB_APPLICANT_STATUSES.reviewing, JOB_APPLICANT_STATUSES.accepted, JOB_APPLICANT_STATUSES.rejected].includes(normalizedStatus)) {
+            return res.status(400).json({ err: "Invalid applicant status." });
+        }
+
+        const context = await getApplicantAccessContext(requesterId, applicantId);
+        if (!context.applicant || !context.job) {
+            return res.status(403).json({ err: "Not authorized to update this applicant." });
+        }
+        if (context.applicant.archivedAt && !context.staff) {
+            return res.status(400).json({ err: "Archived applicants cannot be updated." });
+        }
+
+        const updatePayload = {
+            applicationStatus: normalizedStatus,
+            statusUpdatedAt: new Date(),
+            companyMessage: normalizeText(companyMessage) || context.applicant.companyMessage,
+        };
+        if (!context.applicant.reviewedAt) {
+            updatePayload.reviewedAt = new Date();
+        }
+
+        await context.applicant.update(updatePayload);
+
+        if ([JOB_APPLICANT_STATUSES.accepted, JOB_APPLICANT_STATUSES.rejected].includes(normalizedStatus)) {
+            await sendApplicantLifecycleEmail({
+                applicant: context.applicant,
+                company: context.company,
+                job: context.job,
+                status: normalizedStatus,
+                subject: emailSubject,
+                message: emailMessage || companyMessage,
+            });
+        }
+
+        return res.json({
+            message: `Applicant marked as ${normalizedStatus}.`,
+            applicant: toPlain(context.applicant),
+        });
+    } catch (err) {
+        console.error("Update Job Applicant Status Error:", err);
+        return res.status(500).json({ err: "Error updating applicant status." });
+    }
+};
+
+/**
+ * @description send a custom email to an applicant
+ */
+exports.sendJobApplicantEmail = async (req, res) => {
+    try {
+        const requesterId = req.user?.Id;
+        const { applicantId } = req.params;
+        const { subject, message } = req.body || {};
+        const emailSubject = normalizeText(subject);
+        const emailMessage = normalizeText(message);
+
+        if (!emailSubject || !emailMessage) {
+            return res.status(400).json({ err: "Email subject and message are required." });
+        }
+
+        const context = await getApplicantAccessContext(requesterId, applicantId);
+        if (!context.applicant || !context.job) {
+            return res.status(403).json({ err: "Not authorized to email this applicant." });
+        }
+        if (context.applicant.archivedAt && !context.staff) {
+            return res.status(400).json({ err: "Archived applicants cannot be emailed from the dashboard." });
+        }
+
+        await sendApplicantLifecycleEmail({
+            applicant: context.applicant,
+            company: context.company,
+            job: context.job,
+            status: context.applicant.applicationStatus,
+            subject: emailSubject,
+            message: emailMessage,
+        });
+
+        return res.json({
+            message: "Email sent to applicant successfully.",
+            applicant: toPlain(context.applicant),
+        });
+    } catch (err) {
+        console.error("Send Job Applicant Email Error:", err);
+        return res.status(500).json({ err: "Error sending applicant email." });
+    }
+};
+
+/**
+ * @description soft-delete applicant from company dashboard after rejection
+ */
+exports.archiveJobApplicant = async (req, res) => {
+    try {
+        const requesterId = req.user?.Id;
+        const { applicantId } = req.params;
+        const context = await getApplicantAccessContext(requesterId, applicantId);
+        if (!context.applicant || !context.job) {
+            return res.status(403).json({ err: "Not authorized to archive this applicant." });
+        }
+        if (context.applicant.applicationStatus !== JOB_APPLICANT_STATUSES.rejected) {
+            return res.status(400).json({ err: "Applicants can only be removed from the dashboard after rejection." });
+        }
+        if (context.applicant.archivedAt) {
+            return res.json({ message: "Applicant already removed from the dashboard." });
+        }
+
+        await context.applicant.update({
+            archivedAt: new Date(),
+            statusUpdatedAt: new Date(),
+        });
+
+        return res.json({ message: "Applicant removed from the dashboard." });
+    } catch (err) {
+        console.error("Archive Job Applicant Error:", err);
+        return res.status(500).json({ err: "Error removing applicant from dashboard." });
     }
 };
 

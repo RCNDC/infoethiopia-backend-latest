@@ -21,20 +21,91 @@ module.exports = (sequelize, dataTypes) => {
             allowNull: true,
             field: "phone",
         },
-        cvLink: {
-            type: dataTypes.STRING(1000),
+        currentCompany: {
+            type: dataTypes.STRING,
             allowNull: true,
-            field: "cvLink",
+            field: "currentCompany",
         },
-        cvFileId: {
+        employmentType: {
+            type: dataTypes.STRING(30),
+            allowNull: true,
+            field: "employmentType",
+        },
+        workCountry: {
+            type: dataTypes.STRING(120),
+            allowNull: true,
+            field: "workCountry",
+        },
+        workCity: {
+            type: dataTypes.STRING(120),
+            allowNull: true,
+            field: "workCity",
+        },
+        workMode: {
+            type: dataTypes.STRING(30),
+            allowNull: true,
+            field: "workMode",
+        },
+        workPeriod: {
             type: dataTypes.STRING(255),
             allowNull: true,
-            field: "cvFileId",
+            field: "workPeriod",
         },
-        cvMessageId: {
+        roleTitle: {
             type: dataTypes.STRING(255),
             allowNull: true,
-            field: "cvMessageId",
+            field: "roleTitle",
+        },
+        education: {
+            type: dataTypes.TEXT("long"),
+            allowNull: true,
+            field: "education",
+        },
+        licensesAndCertifications: {
+            type: dataTypes.TEXT("long"),
+            allowNull: true,
+            field: "licensesAndCertifications",
+        },
+        skills: {
+            type: dataTypes.TEXT("long"),
+            allowNull: true,
+            field: "skills",
+        },
+        applicationStatus: {
+            type: dataTypes.STRING(30),
+            allowNull: false,
+            defaultValue: "submitted",
+            field: "applicationStatus",
+        },
+        reviewedAt: {
+            type: dataTypes.DATE,
+            allowNull: true,
+            field: "reviewedAt",
+        },
+        statusUpdatedAt: {
+            type: dataTypes.DATE,
+            allowNull: true,
+            field: "statusUpdatedAt",
+        },
+        companyMessage: {
+            type: dataTypes.TEXT("long"),
+            allowNull: true,
+            field: "companyMessage",
+        },
+        lastEmailSubject: {
+            type: dataTypes.STRING(255),
+            allowNull: true,
+            field: "lastEmailSubject",
+        },
+        lastEmailSentAt: {
+            type: dataTypes.DATE,
+            allowNull: true,
+            field: "lastEmailSentAt",
+        },
+        archivedAt: {
+            type: dataTypes.DATE,
+            allowNull: true,
+            field: "archivedAt",
         },
         jobPostId: {
             type: dataTypes.UUID,
@@ -51,6 +122,12 @@ module.exports = (sequelize, dataTypes) => {
             {
                 unique: true,
                 fields: ["jobPostId", "email"],
+            },
+            {
+                fields: ["applicationStatus"],
+            },
+            {
+                fields: ["archivedAt"],
             },
         ],
     });
